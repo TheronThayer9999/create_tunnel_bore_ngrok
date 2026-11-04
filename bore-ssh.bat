@@ -37,7 +37,10 @@ set "BORE_PID="
 :parse
 if "%~1"=="" goto :parsed
 if /i "%~1"=="-h" goto :help
-if /i "%~1"=="help" goto :help
+if /i "%~1"=="help" (
+  set "MODE=help"
+  goto :help
+)
 if /i "%~1"=="--help" goto :help
 if /i "%~1"=="setup" (
   set "MODE=setup"
@@ -176,12 +179,18 @@ rem ============================================================
 rem  SETUP: cai OpenSSH Server + mo tunnel
 rem ============================================================
 :setup
-call :require_admin
-if errorlevel 1 goto :end
-
-if exist "%BORE%" goto :setup_conf
+rem Cai bore truoc (khong can admin) de khong bi phu thuoc vao UAC
+if exist "%BIN%" goto :setup_admin
 call :do_install
-if not exist "%BORE%" goto :setup_fail
+if exist "%BIN%" goto :setup_admin
+echo.
+echo   [X] Chua tai duoc bore, tiep tuc setup SSH.
+echo       Sau khi xong, chay rieng: bore-ssh.bat install
+echo.
+
+:setup_admin
+call :require_admin
+if errorlevel 1 goto :setup_noadmin
 
 :setup_conf
 if not exist "%CONF%" if exist "%EXAMPLE%" copy /y "%EXAMPLE%" "%CONF%" >nul 2>&1
@@ -205,6 +214,10 @@ if defined DRYRUN     set "PSARGS=!PSARGS! -DryRun"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SETUPPS1%" !PSARGS!
 if errorlevel 1 goto :setup_fail
 
+rem Defender co the vua duoc loai tru -> tai lai bore neu file bi cach ly
+if not exist "%BIN%" call :do_install
+if not exist "%BIN%" goto :setup_fail
+
 if defined OPT_SSHONLY goto :setup_only
 if defined DRYRUN goto :end
 
@@ -216,7 +229,23 @@ goto :end
 :setup_only
 echo.
 echo   [i] Chi setup SSH, khong mo tunnel.
-echo   [i] Mo tunnel sau bang:  bore-ssh.bat server
+echo   [i] Mo tunnel sau bang:  bore-ssh.bat s
+echo.
+pause
+goto :end
+
+:setup_noadmin
+echo.
+if defined ADMIN_OK goto :setup_noadmin_ok
+echo   [i] Chua setup duoc SSH server (khong co quyen Administrator).
+echo   [i] Neu SSH da cai san, mo tunnel bang:  bore-ssh.bat s
+echo.
+pause
+goto :end
+
+:setup_noadmin_ok
+echo   [i] Setup da hoan tat trong cua so Administrator.
+echo   [i] Muon mo lai tunnel:  bore-ssh.bat s
 echo.
 pause
 goto :end
@@ -288,11 +317,13 @@ echo   Goi y:
 echo     - Kiem tra ket noi internet / relay server.
 echo     - Neu dat REMOTE_PORT, port do co the da bi nguoi khac dung.
 echo.
-if defined MODE goto :end
 pause
+if defined MODE goto :end
 goto :menu
 
 :server_back
+echo.
+pause
 if defined MODE goto :end
 goto :menu
 
@@ -418,6 +449,8 @@ move /y "%TMPD%\bore.exe" "%BIN%" >nul 2>&1
 rmdir /s /q "%TMPD%" >nul 2>&1
 del /q "%ZIP%" >nul 2>&1
 if not exist "%BIN%" goto :install_fail
+call :verify_bore
+if errorlevel 1 exit /b 1
 echo   [+] Da cai: %BIN%
 echo.
 echo   Luu y: Windows Defender doi khi bao nham bore.exe la virus.
@@ -431,14 +464,30 @@ move /y "%TMPD%\bore.exe" "%BIN%" >nul 2>&1
 rmdir /s /q "%TMPD%" >nul 2>&1
 del /q "%ZIP%" >nul 2>&1
 if not exist "%BIN%" goto :install_fail
+call :verify_bore
+if errorlevel 1 exit /b 1
 echo   [+] Da cai: %BIN%
 exit /b 0
+
+:verify_bore
+"%BIN%" --version >nul 2>&1
+if not errorlevel 1 exit /b 0
+echo.
+echo   [X] bore.exe da tai nhung KHONG CHAY duoc.
+echo       Thuong la Windows Defender cach ly/chan file.
+echo       Chay "bore-ssh.bat setup" bang quyen Admin de tu loai tru.
+echo       Hoac them tay trong PowerShell Admin:
+echo         Add-MpPreference -ExclusionPath "%ROOT%bin"
+echo.
+exit /b 1
 
 :install_fail
 echo.
 echo   [X] Cai dat that bai.
 echo       Tai thu cong: %URL%
 echo       Giai nen bore.exe vao: %ROOT%bin\
+echo       Neu file tai ve bi xoa ngay: Windows Defender dang cach ly.
+echo       Chay "bore-ssh.bat setup" (Admin) de tu them loai tru.
 exit /b 1
 
 :install_nocurl
@@ -519,7 +568,10 @@ if defined OPT_PW     set REARGS=!REARGS! --password "!OPT_PW!"
 if defined OPT_SSHONLY set "REARGS=!REARGS! --ssh-only"
 if defined OPT_SKIPPW set "REARGS=!REARGS! --skip-password"
 if defined DRYRUN     set "REARGS=!REARGS! --dry-run"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '%REARGS%' -Verb RunAs"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $p = Start-Process -FilePath '%~f0' -ArgumentList '%REARGS%' -Verb RunAs -Wait -PassThru; exit $p.ExitCode } catch { Write-Host ''; Write-Host ('  [X] Khong mo duoc cua so Administrator: ' + $_.Exception.Message); exit 2 }"
+set "RC=%ERRORLEVEL%"
+if "%RC%"=="0" set "ADMIN_OK=1"
+if not "%RC%"=="0" echo   [X] Cua so Administrator dong voi ma loi %RC%.
 exit /b 1
 
 rem Doc file KEY=VALUE (bo qua dong trong va dong bat dau bang #)

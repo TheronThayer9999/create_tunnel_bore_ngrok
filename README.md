@@ -240,7 +240,8 @@ On Colab/Docker (no systemd) the script starts `sshd` directly and uses port `22
 
 | Symptom | Fix |
 |---|---|
-| Windows Defender flags `bore.exe` as a virus and deletes it | Common false positive for Rust tunnel binaries. Exclude `bin\` or download bore from GitHub and place it in `bin\` |
+| Pressing `1` makes the window disappear | It self-elevates via UAC into a new Administrator window. If the result isn't visible, run `bore-ssh.bat setup` from an Administrator terminal and read the output there |
+| Windows Defender flags `bore.exe` as a virus and deletes it | Common false positive for Rust tunnel binaries. `setup` (as Admin) adds `bin\` to Defender exclusions automatically; or run `Add-MpPreference -ExclusionPath "<repo>\bin"` in an Admin PowerShell, then `bore-ssh.bat install` |
 | `Khong mo duoc tunnel` and the log says port in use | The `REMOTE_PORT` is taken → pick another number or leave it empty |
 | `sshd` is not running | Windows: `Get-Service sshd` / `Restart-Service sshd`; Linux: check `/tmp/sshd-bore.log` |
 | Connection works but `Permission denied` | Check the user exists and is enabled, the password is correct, `PasswordAuthentication yes` |

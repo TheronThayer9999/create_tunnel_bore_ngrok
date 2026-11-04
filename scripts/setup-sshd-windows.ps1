@@ -96,6 +96,26 @@ if ($DryRun) {
 }
 
 # -------------------------------------------------------------
+# 0. Loai tru Windows Defender cho thu muc bin
+#    (bore.exe hay bi bao nham la virus va bi cach ly)
+# -------------------------------------------------------------
+try {
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    $binDir = Join-Path $repoRoot 'bin'
+    if ((Get-Command Add-MpPreference -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $binDir)) {
+        $excl = @((Get-MpPreference).ExclusionPath)
+        if ($excl -notcontains $binDir) {
+            Add-MpPreference -ExclusionPath $binDir
+            Ok "Defender: da loai tru $binDir"
+        } else {
+            Ok "Defender: $binDir da duoc loai tru"
+        }
+    }
+} catch {
+    Warn "Khong them duoc loai tru Defender: $($_.Exception.Message)"
+}
+
+# -------------------------------------------------------------
 # 1. Cai OpenSSH Server
 # -------------------------------------------------------------
 $sshd = Get-SshdPath
