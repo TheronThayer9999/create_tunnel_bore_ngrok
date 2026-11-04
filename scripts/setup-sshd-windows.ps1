@@ -378,15 +378,41 @@ if ($NoPassword) {
     Warn 'Bo qua dat mat khau (--skip-password)'
 } else {
     $acct = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
+    if (-not $acct -and $Password) {
+        # Chua co user + da co mat khau -> tu tao (tien cho may moi)
+        try {
+            $sec = ConvertTo-SecureString $Password -AsPlainText -Force
+            New-LocalUser -Name $User -Password $sec -FullName $User `
+                -Description 'SSH tunnel user' -PasswordNeverExpires | Out-Null
+            Add-LocalGroupMember -Group 'Administrators' -Member $User -ErrorAction SilentlyContinue
+            $acct = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
+            Ok "Da tao user moi: $User (them vao nhom Administrators)"
+        } catch {
+            Fail "Khong tao duoc user ${User}: $($_.Exception.Message)"
+        }
+    }
+
     if (-not $acct) {
-        Fail "User '$User' khong ton tai tren may nay."
+        Fail "User '$User' khong ton tai. Tao truoc: net user $User <matkhau> /add  (hoac them --password)"
     } else {
         if (-not $Password) {
             $chars = (48..57) + (65..90) + (97..122)
             $Password = 'Aa1!' + (-join ($chars | Get-Random -Count 12 | ForEach-Object { [char]$_ }))
         }
-        $out = & net user $User $Password 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        # net user cung ghi loi ra stderr -> goi theo cach khong nem exception
+        $out = ''
+        $rc = 0
+        try {
+            $ErrorActionPreference = 'Continue'
+            $out = (& net user $User $Password 2>&1 | Out-String).Trim()
+            $rc = $LASTEXITCODE
+        } catch {
+            $out = $_.Exception.Message
+            $rc = 1
+        } finally {
+            $ErrorActionPreference = 'Stop'
+        }
+        if ($rc -ne 0) {
             Fail "Khong dat duoc mat khau cho ${User}: $out"
         } else {
             Ok "Da dat mat khau cho user: $User"
@@ -416,8 +442,26 @@ Write-Host '============================================================' -Foreg
 Write-Host '  KIEM TRA TU DONG' -ForegroundColor White
 Write-Host '============================================================' -ForegroundColor White
 
-$probe = & $sshd -T 2>$null
-if ($probe) { Ok 'sshd doc duoc cau hinh (sshd -T)' } else { Fail 'sshd -T that bai' }
+# sshd.exe ghi loi ra stderr; voi ErrorActionPreference=Stop thi PowerShell
+# bien no thanh exception (RemoteException) -> tam ha xuong Continue khi goi.
+$probe = ''
+try {
+    $ErrorActionPreference = 'Continue'
+    $probe = (& $sshd -T 2>&1 | Out-String)
+} catch {
+    $probe = ''
+} finally {
+    $ErrorActionPreference = 'Stop'
+}
+
+if ($probe -match '(?m)^port \d+') {
+    Ok 'sshd doc duoc cau hinh (sshd -T)'
+} else {
+    $head = ($probe -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+    $head = ($head -replace '^.*\.exe\s*:\s*', '').Trim()
+    if (-not $head) { $head = 'khong co output (sshd.exe khong chay duoc?)' }
+    Fail "sshd -T that bai: $head"
+}
 
 if ($probe -match "(?m)^passwordauthentication yes") { Ok 'PasswordAuthentication = yes' }
 else { Fail 'PasswordAuthentication != yes' }
