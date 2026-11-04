@@ -183,6 +183,25 @@ bore-ssh.bat c        :: Windows
 
 Details are cached in `.bore-ssh-last`, so from the second run on it is a single action.
 
+### Account has no password?
+
+sshd rejects empty passwords (`PermitEmptyPasswords no`), so an account with no password can never log in over SSH. Easiest fix — create a dedicated account (does not touch your own Windows login):
+
+```bat
+:: run in an Administrator cmd
+net user ssh Ssh-2026-Strong /add
+net localgroup Administrators ssh /add
+bore-ssh.bat setup --user ssh --password Ssh-2026-Strong
+```
+
+Then connect as `ssh`, which is also easier to type than a name with spaces:
+
+```bash
+ssh -p <port> ssh@bore.pub
+```
+
+Or give your own account a password and keep using it: `net user "Your Name" "NewPass"`.
+
 ### A note on usage time
 
 The script **does not** install a service or scheduled task: the tunnel lives only in the running window. Using it for a few hours and closing is perfectly fine, nothing to clean up. You only need Task Scheduler / `nohup` / `tmux` if you want long-running background tunnels.
@@ -300,6 +319,7 @@ On Colab/Docker (no systemd) the script starts `sshd` directly and uses port `22
 | `Khong mo duoc tunnel` and the log says port in use | The `REMOTE_PORT` is taken → pick another number or leave it empty |
 | `sshd` is not running | Windows: `Get-Service sshd` / `Restart-Service sshd`; Linux: check `/tmp/sshd-bore.log` |
 | Connection works but `Permission denied` | Check the user exists and is enabled, the password is correct, `PasswordAuthentication yes` |
+| Password prompt appears, but every password is rejected | The Windows account may have **no password** (`net user NAME` → `Password required: No`, `Password last set` empty). sshd refuses empty passwords: give it one (`net user NAME "NewPass"`) or create a dedicated SSH user (see below) |
 | The public port keeps changing | Set a fixed `REMOTE_PORT` in `tunnel.conf` |
 | Closing the window kills the tunnel | By design. For background use: Task Scheduler (Windows) or `nohup`/`tmux` (Linux) |
 | Leftover bore process | Windows: `taskkill /IM bore.exe /F` — Linux: `pkill -x bore` |
