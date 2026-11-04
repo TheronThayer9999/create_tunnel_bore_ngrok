@@ -30,6 +30,7 @@ set "OPT_PW="
 set "OPT_USER="
 set "OPT_SSHONLY="
 set "OPT_SKIPPW="
+set "OPT_WU="
 set "OPT_HOURS="
 set "BORE_STARTED="
 set "BORE_PID="
@@ -110,6 +111,16 @@ if /i "%~1"=="--ssh-only" (
 )
 if /i "%~1"=="--skip-password" (
   set "OPT_SKIPPW=1"
+  shift
+  goto :parse
+)
+if /i "%~1"=="--windows-update" (
+  set "OPT_WU=1"
+  shift
+  goto :parse
+)
+rem Giu de tuong thich: gio day la mac dinh
+if /i "%~1"=="--github-ssh" (
   shift
   goto :parse
 )
@@ -222,7 +233,8 @@ echo.
 set "PSARGS=-Port %FPORT% -User "%FUSER%" -ConfPath "%CONF%""
 if defined OPT_PW     set "PSARGS=!PSARGS! -Password "%OPT_PW%""
 if defined OPT_SKIPPW set "PSARGS=!PSARGS! -NoPassword"
-if defined DRYRUN     set "PSARGS=!PSARGS! -DryRun"
+if defined OPT_WU      set "PSARGS=!PSARGS! -WindowsUpdate"
+if defined DRYRUN      set "PSARGS=!PSARGS! -DryRun"
 
 rem Xoa log cu de khong in nham log cua lan truoc khi PS1 fail som
 if exist "%ROOT%logs\sshd-setup.log" del /q "%ROOT%logs\sshd-setup.log" >nul 2>&1
@@ -639,7 +651,8 @@ echo     --port N           cong SSH noi bo (mac dinh 2222)
 echo     --password P       mat khau cho user (mac dinh: tu sinh)
 echo     --user NAME        user dung de SSH (mac dinh: user dang chay)
 echo     --ssh-only         chi setup SSH, khong mo tunnel
-echo     --skip-password    khong doi mat khau
+echo     --skip-password    khong doi mat khau (giu mat khau Windows hien tai)
+echo     --windows-update   cai OpenSSH qua Windows Update (cham; mac dinh la GitHub)
 echo     --dry-run          chi in buoc, khong thay doi he thong
 echo.
 echo   Cau hinh: tunnel.conf  xem tunnel.conf.example
@@ -666,7 +679,8 @@ if defined OPT_USER   set REARGS=!REARGS! --user "!OPT_USER!"
 if defined OPT_PW     set REARGS=!REARGS! --password "!OPT_PW!"
 if defined OPT_SSHONLY set "REARGS=!REARGS! --ssh-only"
 if defined OPT_SKIPPW set "REARGS=!REARGS! --skip-password"
-if defined DRYRUN     set "REARGS=!REARGS! --dry-run"
+if defined OPT_WU      set "REARGS=!REARGS! --windows-update"
+if defined DRYRUN      set "REARGS=!REARGS! --dry-run"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $p = Start-Process -FilePath '%~f0' -ArgumentList '%REARGS%' -Verb RunAs -Wait -PassThru; exit $p.ExitCode } catch { Write-Host ''; Write-Host ('  [X] Khong mo duoc cua so Administrator: ' + $_.Exception.Message); exit 2 }"
 set "RC=%ERRORLEVEL%"
 if "%RC%"=="0" set "ADMIN_OK=1"

@@ -23,6 +23,7 @@ param(
     [string]$ConfPath = "",
     [Alias('SkipPassword')][switch]$NoPassword,
     [switch]$SkipFirewall,
+    [switch]$WindowsUpdate,
     [switch]$DryRun
 )
 
@@ -165,12 +166,22 @@ if ($sshd) {
     Step 'Chua co OpenSSH Server, dang cai...'
     $installed = $false
 
-    if (Get-Command Get-WindowsCapability -ErrorAction SilentlyContinue) {
+    # Mac dinh KHONG dung Windows Update (cham 5-15 phut): tai truc tiep tu GitHub.
+    # Dung -WindowsUpdate neu muon ban in-box cua Microsoft.
+    if ($WindowsUpdate -and (Get-Command Get-WindowsCapability -ErrorAction SilentlyContinue)) {
         try {
-            $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*' |
-                   Select-Object -First 1
+            # Ten chinh thuc theo tai lieu Microsoft; van do lai neu may dung ten khac
+            $capName = 'OpenSSH.Server~~~~0.0.1.0'
+            $cap = Get-WindowsCapability -Online -Name $capName -ErrorAction SilentlyContinue
+            if (-not $cap) {
+                $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*' -ErrorAction SilentlyContinue |
+                       Select-Object -First 1
+                if ($cap) { $capName = $cap.Name }
+            }
             if ($cap -and $cap.State -ne 'Installed') {
-                Add-WindowsCapability -Online -Name $cap.Name | Out-Null
+                Step "Add-WindowsCapability -Online -Name $capName"
+                Warn 'Lay tu Windows Update - co the mat 5-15 phut. DUNG TAT cua so nay.'
+                Add-WindowsCapability -Online -Name $capName | Out-Null
             }
             $sshd = Get-SshdPath
             if ($sshd) { $installed = $true; Ok 'Da cai qua Windows Capability' }

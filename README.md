@@ -42,13 +42,44 @@ Or simply **double-click `bore-ssh.bat`** and pick `[1] Setup SSH server + mo tu
 The `setup` command runs, in order:
 
 1. Downloads `bore.exe` into `bin\` (if missing)
-2. Installs **OpenSSH Server** (Windows Capability, falls back to Win32-OpenSSH from GitHub)
+2. Installs **OpenSSH Server** — downloads **Win32-OpenSSH from GitHub** (about a minute). Add `--windows-update` to use the in-box Windows Capability instead (Microsoft-supported, but can sit 5-15 minutes on Windows Update)
 3. Enables the `sshd` service (Automatic + Start)
 4. Opens the firewall for the SSH port
 5. Writes `sshd_config`: `Port 2222`, `PasswordAuthentication yes` (with a backup)
 6. Asks whether to set a new password (**default: keep the current Windows password**) — or pass `--password P` / `--skip-password` to decide up front
 7. **Self-checks**: `sshd -T`, service RUNNING, port LISTENING
 8. Opens the bore tunnel, reads the public port, prints the SSH command
+
+### Windows Update is slow — install manually
+
+Setup downloads Win32-OpenSSH from GitHub by design, because `Add-WindowsCapability` pulls from Windows Update and can sit for 10+ minutes. If you prefer the Microsoft in-box build, run `bore-ssh.bat setup --windows-update` and be patient.
+
+To do it by hand, open an **Administrator** PowerShell, run the commands below, then `bore-ssh.bat setup --ssh-only`:
+
+```powershell
+# 1. Install OpenSSH Server (official Microsoft cmdlet)
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+
+# 2. Start it and make it start with Windows
+Start-Service sshd
+Set-Service -Name sshd -StartupType 'Automatic'
+
+# 3. Verify the firewall rule (created automatically; this fixes it if missing)
+if (!(Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' `
+        -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+}
+```
+
+Check it worked:
+
+```powershell
+Get-Service sshd
+sshd -T | Select-String -Pattern 'port|passwordauth'
+```
+
+> Source: [Get started with OpenSSH Server for Windows](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse).
+> The built-in rule opens port **22**. This project runs sshd on `SSH_PORT` (default **2222**) and `setup` creates its own rule for that port.
 
 Final output looks like:
 
@@ -264,6 +295,7 @@ On Colab/Docker (no systemd) the script starts `sshd` directly and uses port `22
 |---|---|
 | Pressing `1` makes the window disappear | It self-elevates via UAC into a new Administrator window. If the result isn't visible, run `bore-ssh.bat setup` from an Administrator terminal and read the output there |
 | Windows Defender deletes `bore.exe` (`Trojan:Win32/Kepavll`, `The system cannot execute the specified program`) | Common false positive for Rust tunnel binaries. `setup` adds `bin\` to Defender exclusions **before** downloading bore, and `install` offers to do it when the binary is blocked. Manually: `Add-MpPreference -ExclusionPath "<repo>\bin"` in an Admin PowerShell, then `bore-ssh.bat install` |
+| `setup` hangs at `Add-WindowsCapability` for 10+ minutes | It is downloading from Windows Update. The default install downloads from GitHub instead (about a minute). Manual: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` (see §2) |
 | `setup` fails with no visible reason | The last 20 lines of `logs\sshd-setup.log` are printed automatically; the full log is in `logs\sshd-setup.log` |
 | `Khong mo duoc tunnel` and the log says port in use | The `REMOTE_PORT` is taken → pick another number or leave it empty |
 | `sshd` is not running | Windows: `Get-Service sshd` / `Restart-Service sshd`; Linux: check `/tmp/sshd-bore.log` |
