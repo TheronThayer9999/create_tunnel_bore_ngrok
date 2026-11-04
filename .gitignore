@@ -1,0 +1,13 @@
+# Config ca nhan (copy tu tunnel.conf.example)
+tunnel.conf
+
+# Binary tai ve
+bin/
+
+# File tam / trang thai
+.bore-ssh.log
+.bore-ssh-last
+.ssh-password
+
+# Backup cau hinh sshd
+*.bak

@@ -1,0 +1,33 @@
+# ============================================================
+#  bore-ssh config
+#  Copy file nay thanh "tunnel.conf" roi sua.
+#  Quy tac: KEY=VALUE, khong co dau cach quanh "=",
+#           dong bat dau bang "#" la comment.
+# ============================================================
+
+# Relay server cua bore.
+#   bore.pub              = server cong khai mien phi
+#   host:7835             = server rieng cua ban
+BORE_SERVER=bore.pub
+
+# Cong SSH NOI BO cua may chay che do server.
+#   Windows: 22 (OpenSSH mac dinh) hoac 2222 (script setup dung)
+#   Linux/Colab/Docker: 22 hoac 2222
+SSH_PORT=2222
+
+# User dung khi in san lenh SSH (che do client).
+SSH_USER=
+
+# File private key cho che do client. De trong = dung key mac dinh / ssh-agent.
+SSH_KEY=
+
+# Xin bore cap 1 cong cong khai CO DINH. De trong = ngau nhien moi lan chay.
+REMOTE_PORT=
+
+# Duong dan bore binary. De trong = dung bin/bore (Windows: bin\bore.exe).
+BORE_BIN=
+
+# Tham so them cho "bore local".
+# Vi du: --local-host 192.168.1.50   (expose SSH cua may khac trong LAN)
+#        --secret my-secret          (neu relay rieng yeu cau)
+BORE_ARGS=
