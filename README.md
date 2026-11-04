@@ -395,6 +395,10 @@ bore-ssh.bat setup
   └─ open tunnel, read port, print SSH command
 ```
 
+```
+script trial reset for JetBrains reset-trial-jetbrains-windows.bat
+```
+
 ---
 
 ## License
