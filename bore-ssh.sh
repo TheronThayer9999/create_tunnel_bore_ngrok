@@ -186,21 +186,37 @@ run_server() {
     die "Khong mo duoc tunnel. Xem log: $LOG"
   fi
 
-  { printf 'LAST_HOST=%s\nLAST_PORT=%s\n' "$SERVER_HOST" "$port"; [ -n "$SSH_USER" ] && printf 'LAST_USER=%s\n' "$SSH_USER"; } > "$STATE"
+  local who="$SSH_USER" pw=""
+  if [ -f "$ROOT/.ssh-password" ]; then
+    [ -n "$who" ] || who="$(sed -n 's/^SSH_USER=//p' "$ROOT/.ssh-password" | tail -n1)"
+    pw="$(sed -n 's/^SSH_PASSWORD=//p' "$ROOT/.ssh-password" | tail -n1)"
+  fi
+  [ -n "$who" ] || who="$(id -un 2>/dev/null || echo root)"
 
-  local who="${SSH_USER:-YOUR_USER}"
+  # User co dau cach -> de trong ngoac kep
+  local qwho="$who"
+  case "$who" in *" "*) qwho="\"$who\"" ;; esac
+
+  printf 'LAST_HOST=%s\nLAST_PORT=%s\nLAST_USER=%s\n' "$SERVER_HOST" "$port" "$who" > "$STATE"
+
   printf '\n'
   printf '  ============================================================\n'
   printf '     TUNNEL DANG MO\n'
   printf '  ============================================================\n'
-  printf '     Cong khai : %s:%s\n' "$SERVER_HOST" "$port"
-  printf '     SSH vao   : ssh -p %s %s@%s\n' "$port" "$who" "$SERVER_HOST"
+  printf '     Cong khai : %s:%s\n\n' "$SERVER_HOST" "$port"
+  printf '     >> DAN NGUYEN DONG NAY VAO MAY KHAC:\n\n'
+  printf '          ssh -p %s %s@%s\n\n' "$port" "$qwho" "$SERVER_HOST"
+  [ -n "$pw" ] && printf '     Mat khau  : %s\n\n' "$pw"
+  printf '     User      : %s  (tai khoan tren may nay)\n' "$who"
   printf '  ------------------------------------------------------------\n'
-  printf '     Go ngan hon - dan vao ~/.ssh/config:\n'
+  printf '     Thu ngay tai may nay truoc:\n'
+  printf '          ssh -p %s %s@localhost\n' "$SSH_PORT" "$qwho"
+  printf '  ------------------------------------------------------------\n'
+  printf '     Hoac dan vao ~/.ssh/config de go ngan:\n'
   printf '        Host vm\n'
   printf '            HostName %s\n' "$SERVER_HOST"
   printf '            Port %s\n' "$port"
-  printf '            User %s\n' "$who"
+  printf '            User %s\n' "$qwho"
   printf '     Roi chi can go:  ssh vm\n'
   printf '  ============================================================\n\n'
   printf '  Nhan Enter de dung tunnel...'

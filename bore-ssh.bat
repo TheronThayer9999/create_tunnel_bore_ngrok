@@ -179,18 +179,18 @@ rem ============================================================
 rem  SETUP: cai OpenSSH Server + mo tunnel
 rem ============================================================
 :setup
-rem Cai bore truoc (khong can admin) de khong bi phu thuoc vao UAC
-if exist "%BIN%" goto :setup_admin
-call :do_install
-if exist "%BIN%" goto :setup_admin
-echo.
-echo   [X] Chua tai duoc bore, tiep tuc setup SSH.
-echo       Sau khi xong, chay rieng: bore-ssh.bat install
-echo.
-
-:setup_admin
 call :require_admin
 if errorlevel 1 goto :setup_noadmin
+
+rem --dry-run: chi in buoc, khong doi he thong
+if defined DRYRUN goto :setup_conf
+
+rem Da co quyen Admin: loai tru Defender TRUOC khi tai bore.
+rem Neu khong, Defender se xoa bore.exe ngay khi file vua duoc giai nen.
+call :exclude_defender
+
+if not exist "%BIN%" call :do_install
+if not exist "%BIN%" goto :setup_fail
 
 :setup_conf
 if not exist "%CONF%" if exist "%EXAMPLE%" copy /y "%EXAMPLE%" "%CONF%" >nul 2>&1
@@ -202,17 +202,34 @@ if not defined FPORT set "FPORT=2222"
 set "FUSER=%OPT_USER%"
 if not defined FUSER set "FUSER=%USERNAME%"
 
+if defined OPT_PW goto :setup_pw_done
+if defined OPT_SKIPPW goto :setup_pw_done
+if defined DRYRUN goto :setup_pw_done
+
+echo.
+echo   Mat khau Windows cua "%FUSER%" se dung de dang nhap SSH.
+set "YN="
+set /p "YN=  Dat mat khau MOI (tu sinh)? [y/N]: "
+if /i "%YN%"=="y" goto :setup_pw_done
+set "OPT_SKIPPW=1"
+echo   [i] Giu nguyen mat khau hien tai cua "%FUSER%".
+
+:setup_pw_done
 echo.
 echo   [*] Setup SSH server: cong %FPORT%, user %FUSER%
 echo.
 
 set "PSARGS=-Port %FPORT% -User "%FUSER%" -ConfPath "%CONF%""
 if defined OPT_PW     set "PSARGS=!PSARGS! -Password "%OPT_PW%""
-if defined OPT_SKIPPW set "PSARGS=!PSARGS! -SkipPassword"
+if defined OPT_SKIPPW set "PSARGS=!PSARGS! -NoPassword"
 if defined DRYRUN     set "PSARGS=!PSARGS! -DryRun"
 
+rem Xoa log cu de khong in nham log cua lan truoc khi PS1 fail som
+if exist "%ROOT%logs\sshd-setup.log" del /q "%ROOT%logs\sshd-setup.log" >nul 2>&1
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SETUPPS1%" !PSARGS!
-if errorlevel 1 goto :setup_fail
+set "PSRC=%ERRORLEVEL%"
+if not "%PSRC%"=="0" goto :setup_ps_fail
 
 rem Defender co the vua duoc loai tru -> tai lai bore neu file bi cach ly
 if not exist "%BIN%" call :do_install
@@ -237,6 +254,7 @@ goto :end
 :setup_noadmin
 echo.
 if defined ADMIN_OK goto :setup_noadmin_ok
+if defined ADMIN_FAIL goto :setup_ps_fail_bad
 echo   [i] Chua setup duoc SSH server (khong co quyen Administrator).
 echo   [i] Neu SSH da cai san, mo tunnel bang:  bore-ssh.bat s
 echo.
@@ -250,12 +268,49 @@ echo.
 pause
 goto :end
 
-:setup_fail
-echo.
-echo   [X] Setup that bai. Xem loi o tren.
+:setup_ps_fail_bad
+echo   [X] Cua so Administrator da dong nhung setup KHONG thanh cong.
+call :show_setup_log
 echo.
 pause
 goto :end
+
+:setup_ps_fail
+echo.
+if "%PSRC%"=="2" echo   [X] Thieu quyen Administrator de cai SSH server.
+echo   [X] Cai SSH server that bai (ma loi %PSRC%).
+call :show_setup_log
+echo.
+pause
+goto :end
+
+:setup_fail
+echo.
+echo   [X] Setup that bai.
+call :show_setup_log
+echo.
+pause
+goto :end
+
+rem Ghi SSH_USER=<user Windows hien tai> vao tunnel.conf (neu dang trong)
+:save_conf_user
+set "SSH_USER=%USERNAME%"
+if not exist "%CONF%" exit /b 0
+powershell -NoProfile -Command "$p='%CONF%'; $u='%USERNAME%'; $c=@(Get-Content -LiteralPath $p); $f=$false; $c = $c | ForEach-Object { if ($_ -match '^\s*SSH_USER\s*=') { 'SSH_USER=' + $u; $f=$true } else { $_ } }; if (-not $f) { $c += ('SSH_USER=' + $u) }; Set-Content -LiteralPath $p -Value $c -Encoding ASCII" >nul 2>&1
+exit /b 0
+
+rem In 20 dong cuoi cua log setup de biet loi that su
+:show_setup_log
+set "SLOG=%ROOT%logs\sshd-setup.log"
+if not exist "%SLOG%" (
+    echo   [i] Khong co log moi - loi xay ra truoc khi PS1 kip chay.
+    exit /b 0
+)
+echo.
+echo   --- 20 dong cuoi: %SLOG% ---
+powershell -NoProfile -Command "Get-Content -LiteralPath '%SLOG%' -Tail 20 | ForEach-Object { '   ' + $_ }"
+echo   --- het log ---
+exit /b 0
 
 
 rem ============================================================
@@ -264,6 +319,11 @@ rem ============================================================
 :server
 call :ensure_bore
 if errorlevel 1 goto :server_back
+call :verify_bore
+if errorlevel 1 goto :server_back
+
+rem Chua co SSH_USER trong tunnel.conf -> ghi user Windows hien tai vao
+if not defined SSH_USER call :save_conf_user
 
 set "PORTARG="
 if not "%REMOTE_PORT%"=="" set "PORTARG=--port %REMOTE_PORT%"
@@ -274,21 +334,24 @@ if defined DRYRUN goto :server_dry
 
 echo.
 echo   [*] Mo tunnel: %BORECMD%
-del /q "%LOG%" >nul 2>&1
+rem Log rieng cho moi lan chay: tranh bi khoa boi tien trinh bore cu
+rem (neu dung chung .bore-ssh.log, port doc duoc co the la port CU)
+set "RUNLOG=%TEMP%\bore-run-%RANDOM%%RANDOM%.log"
+del /q "%RUNLOG%" >nul 2>&1
 for %%F in ("%BORE_BIN%") do set "BORE_IMAGE=%%~nxF"
 call :list_pids
 set "PIDS_BEFORE=!PIDS!"
-start "" /b cmd /c ""%BORE_BIN%" local %SSH_PORT% --to %BORE_SERVER% %PORTARG% %BORE_ARGS% > "%LOG%" 2>&1"
+start "" /b cmd /c ""%BORE_BIN%" local %SSH_PORT% --to %BORE_SERVER% %PORTARG% %BORE_ARGS% > "%RUNLOG%" 2>&1"
 set "BORE_STARTED=1"
 call :capture_pid
 
 call :wait_port
 if not defined BORE_PORT goto :server_fail
 
-call :show_endpoint
+rem Luu ban sao log de xem lai sau
+copy /y "%RUNLOG%" "%LOG%" >nul 2>&1
 
->"%STATE%" echo LAST_HOST=%SERVER_HOST%
->>"%STATE%" echo LAST_PORT=%BORE_PORT%
+call :show_endpoint
 
 echo.
 echo   [i] Tunnel dang chay. Nhan phim bat ky de DUNG tunnel va thoat.
@@ -311,20 +374,20 @@ goto :menu
 call :stop_bore
 echo.
 echo   [X] Khong mo duoc tunnel.
-if exist "%LOG%" type "%LOG%"
+if exist "%RUNLOG%" type "%RUNLOG%"
 echo.
 echo   Goi y:
 echo     - Kiem tra ket noi internet / relay server.
 echo     - Neu dat REMOTE_PORT, port do co the da bi nguoi khac dung.
+if defined MODE goto :end
 echo.
 pause
-if defined MODE goto :end
 goto :menu
 
 :server_back
+if defined MODE goto :end
 echo.
 pause
-if defined MODE goto :end
 goto :menu
 
 
@@ -472,13 +535,49 @@ exit /b 0
 :verify_bore
 "%BIN%" --version >nul 2>&1
 if not errorlevel 1 exit /b 0
+if defined DEFENDER_FIXED goto :verify_bore_dead
 echo.
-echo   [X] bore.exe da tai nhung KHONG CHAY duoc.
-echo       Thuong la Windows Defender cach ly/chan file.
-echo       Chay "bore-ssh.bat setup" bang quyen Admin de tu loai tru.
-echo       Hoac them tay trong PowerShell Admin:
+echo   [X] bore.exe co tren dia nhung KHONG CHAY duoc.
+echo       Windows Defender dang xoa/chan file (bao nham: Trojan:Win32/Kepavll).
+echo       Cach sua: loai tru thu muc bin, roi tai lai bore.
+echo.
+choice /c YN /n /m "  Loai tru Defender cho %ROOT%bin va tai lai bore? [Y/n]: "
+if errorlevel 2 goto :verify_bore_dead
+set "DEFENDER_FIXED=1"
+call :exclude_defender
+if errorlevel 1 goto :verify_bore_dead
+del /q "%BIN%" >nul 2>&1
+call :do_install
+exit /b %ERRORLEVEL%
+
+:verify_bore_dead
+echo.
+echo   [X] Khong chay duoc bore.exe.
+echo       Chay tay trong PowerShell (Run as Administrator):
 echo         Add-MpPreference -ExclusionPath "%ROOT%bin"
+echo       Roi:
+echo         bore-ssh.bat install
 echo.
+exit /b 1
+
+rem Them loai tru Defender cho %ROOT%bin (tu xin quyen Admin neu can)
+:exclude_defender
+if not exist "%ROOT%scripts\defender-exclude.ps1" goto :exclude_defender_manual
+set "ISADMIN="
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 0 } else { exit 1 }" >nul 2>&1
+if not errorlevel 1 set "ISADMIN=1"
+if defined ISADMIN goto :exclude_defender_direct
+
+echo   [..] Can quyen Administrator de loai tru Defender, dang mo UAC...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath 'powershell' -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%ROOT%scripts\defender-exclude.ps1','-Path','%ROOT%bin'; exit $p.ExitCode } catch { Write-Host ''; Write-Host ('  [X] ' + $_.Exception.Message); exit 2 }"
+exit /b %ERRORLEVEL%
+
+:exclude_defender_direct
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\defender-exclude.ps1" -Path "%ROOT%bin"
+exit /b %ERRORLEVEL%
+
+:exclude_defender_manual
+echo   [i] Khong thay scripts\defender-exclude.ps1 - bo qua loai tru Defender.
 exit /b 1
 
 :install_fail
@@ -571,6 +670,7 @@ if defined DRYRUN     set "REARGS=!REARGS! --dry-run"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $p = Start-Process -FilePath '%~f0' -ArgumentList '%REARGS%' -Verb RunAs -Wait -PassThru; exit $p.ExitCode } catch { Write-Host ''; Write-Host ('  [X] Khong mo duoc cua so Administrator: ' + $_.Exception.Message); exit 2 }"
 set "RC=%ERRORLEVEL%"
 if "%RC%"=="0" set "ADMIN_OK=1"
+if not "%RC%"=="0" set "ADMIN_FAIL=1"
 if not "%RC%"=="0" echo   [X] Cua so Administrator dong voi ma loi %RC%.
 exit /b 1
 
@@ -632,7 +732,7 @@ set /a _TRIES=0
 :wait_loop
 call :parse_log
 if defined BORE_PORT exit /b 0
-if exist "%LOG%" findstr /i /c:"error" /c:"failed" "%LOG%" >nul 2>&1
+if exist "%RUNLOG%" findstr /i /c:"error" /c:"failed" "%RUNLOG%" >nul 2>&1
 if not errorlevel 1 exit /b 1
 set /a _TRIES+=1
 if %_TRIES% geq 25 exit /b 1
@@ -642,7 +742,7 @@ goto :wait_loop
 rem Lay port cuoi cung tu dong "listening at <server>:<port>"
 :parse_log
 set "_LINE="
-for /f "usebackq delims=" %%L in (`findstr /c:"listening at " "%LOG%" 2^>nul`) do set "_LINE=%%L"
+for /f "usebackq delims=" %%L in (`findstr /c:"listening at " "%RUNLOG%" 2^>nul`) do set "_LINE=%%L"
 if not defined _LINE exit /b 1
 set "_TAIL=!_LINE:*listening at =!"
 if not defined _TAIL exit /b 1
@@ -655,22 +755,55 @@ for /f "tokens=1,* delims=:" %%A in ("!_TAIL!") do (
 goto :parse_split
 
 :show_endpoint
+rem Tat delayed expansion o day: mat khau co the chua "!" (bi cmd an mat)
+setlocal DisableDelayedExpansion
 set "SSHUSER=%SSH_USER%"
+rem Chua cau hinh user -> dung tai khoan Windows dang chay (chinh la user de SSH vao)
+if not defined SSHUSER set "SSHUSER=%USERNAME%"
 if not defined SSHUSER set "SSHUSER=YOUR_USER"
+
+rem Doc user + mat khau da luu tu lan setup (.ssh-password)
+set "PWSAVED="
+if exist "%ROOT%.ssh-password" for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%ROOT%.ssh-password") do (
+    if /i "%%A"=="SSH_USER"     set "SSHUSER=%%B"
+    if /i "%%A"=="SSH_PASSWORD" set "PWSAVED=%%B"
+)
+
+rem User co dau cach -> phai de trong ngoac kep
+set "QUSER=%SSHUSER%"
+if not "%SSHUSER%"=="%SSHUSER: =%" set "QUSER="%SSHUSER%""
+
+rem Luu lai de che do client dung lai (khong phai hoi)
+>"%STATE%" echo LAST_HOST=%SERVER_HOST%
+>>"%STATE%" echo LAST_PORT=%BORE_PORT%
+>>"%STATE%" echo LAST_USER=%SSHUSER%
+
 echo.
 echo   ============================================================
 echo      TUNNEL DANG MO
 echo   ============================================================
 echo      Cong khai : %SERVER_HOST%:%BORE_PORT%
-echo      SSH vao   : ssh -p %BORE_PORT% %SSHUSER%@%SERVER_HOST%
+echo.
+echo      ^>^>^> DAN NGUYEN DONG NAY VAO MAY KHAC:
+echo.
+echo          ssh -p %BORE_PORT% %QUSER%@%SERVER_HOST%
+echo.
+if defined PWSAVED echo      Mat khau  : %PWSAVED%
+if defined PWSAVED echo.
+echo      User      : %SSHUSER%  (tai khoan Windows tren may nay)
 echo   ------------------------------------------------------------
-echo      Go ngan hon - dan vao %%USERPROFILE%%\.ssh\config:
+echo      Thu ngay tai may nay truoc:
+echo          ssh -p %SSH_PORT% %QUSER%@localhost
+echo   ------------------------------------------------------------
+echo      Hoac dan vao %%USERPROFILE%%\.ssh\config de go ngan:
 echo         Host vm
 echo             HostName %SERVER_HOST%
 echo             Port %BORE_PORT%
-echo             User %SSHUSER%
+echo             User %QUSER%
 echo      Roi chi can go:  ssh vm
 echo   ============================================================
+if defined PWSAVED echo      Ghi chu: mat khau luu trong .ssh-password (da gitignore)
+endlocal
 exit /b 0
 
 :stop_bore
@@ -681,6 +814,7 @@ goto :stop_bore_done
 :stop_bore_img
 taskkill /f /im %BORE_IMAGE% >nul 2>&1
 :stop_bore_done
+if defined RUNLOG if exist "%RUNLOG%" del /q "%RUNLOG%" >nul 2>&1
 set "BORE_STARTED="
 set "BORE_PID="
 exit /b 0

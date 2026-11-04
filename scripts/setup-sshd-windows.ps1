@@ -1,9 +1,8 @@
-#Requires -RunAsAdministrator
 <#
     setup-sshd-windows.ps1
     Tu dong cai + cau hinh OpenSSH Server tren Windows Server.
 
-    Duoc goi tu setup-ssh-bore.bat (khong can chay truc tiep).
+    Duoc goi tu bore-ssh.bat (khong can chay truc tiep).
 
     Cac buoc:
       1. Cai OpenSSH Server (Windows Capability, fallback Win32-OpenSSH)
@@ -22,7 +21,7 @@ param(
     [string]$User = $env:USERNAME,
     [string]$Password = "",
     [string]$ConfPath = "",
-    [switch]$NoPassword,
+    [Alias('SkipPassword')][switch]$NoPassword,
     [switch]$SkipFirewall,
     [switch]$DryRun
 )
@@ -31,10 +30,47 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $script:Failed = $false
 
-function Step($m) { Write-Host "[..]   $m" -ForegroundColor Cyan }
-function Ok($m)   { Write-Host "[ok]   $m" -ForegroundColor Green }
-function Warn($m) { Write-Host "[warn] $m" -ForegroundColor Yellow }
-function Fail($m) { Write-Host "[fail] $m" -ForegroundColor Red; $script:Failed = $true }
+# -------------------------------------------------------------
+# Log file: bore-ssh.bat in 20 dong cuoi khi setup that bai
+# -------------------------------------------------------------
+$script:LogFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs\sshd-setup.log'
+
+function Write-Log([string]$m) {
+    try {
+        $dir = Split-Path -Parent $script:LogFile
+        if (-not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $line = '{0} {1}' -f (Get-Date -Format 'HH:mm:ss'), $m
+        [IO.File]::AppendAllText($script:LogFile, $line + "`r`n", (New-Object Text.UTF8Encoding($false)))
+    } catch { }
+}
+
+try {
+    if (Test-Path -LiteralPath $script:LogFile) {
+        Remove-Item -LiteralPath $script:LogFile -Force -ErrorAction SilentlyContinue
+    }
+} catch { }
+
+# Bat moi loi khong luong truoc -> ghi log + in ro rang (khong chet im lang)
+trap {
+    $msg = $_.Exception.Message
+    Write-Host ''
+    Write-Host "[fail] $msg" -ForegroundColor Red
+    Write-Log "LOI: $msg"
+    try {
+        if ($_.InvocationInfo) {
+            Write-Log ('  tai dong ' + $_.InvocationInfo.ScriptLineNumber + ': ' + $_.InvocationInfo.Line.Trim())
+        }
+        Write-Log ('  stack: ' + $_.ScriptStackTrace)
+    } catch { }
+    exit 1
+}
+
+function Step($m) { Write-Host "[..]   $m" -ForegroundColor Cyan; Write-Log "[..] $m" }
+function Ok($m)   { Write-Host "[ok]   $m" -ForegroundColor Green; Write-Log "[ok] $m" }
+function Warn($m) { Write-Host "[warn] $m" -ForegroundColor Yellow; Write-Log "[warn] $m" }
+function Fail($m) { Write-Host "[fail] $m" -ForegroundColor Red; $script:Failed = $true; Write-Log "[fail] $m" }
 
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -83,9 +119,10 @@ Write-Host ''
 Write-Host '============================================================' -ForegroundColor White
 Write-Host '  CAI DAT SSH SERVER (Windows)' -ForegroundColor White
 Write-Host '============================================================' -ForegroundColor White
+Write-Log '=== Cai dat SSH server (Windows) ==='
 
 if (-not (Test-Admin)) {
-    Fail 'Can quyen Administrator. Chay lai bang setup-ssh-bore.bat.'
+    Fail 'Can quyen Administrator. Chay: bore-ssh.bat setup'
     exit 2
 }
 
@@ -102,6 +139,9 @@ if ($DryRun) {
 try {
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $binDir = Join-Path $repoRoot 'bin'
+    if (-not (Test-Path -LiteralPath $binDir)) {
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    }
     if ((Get-Command Add-MpPreference -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $binDir)) {
         $excl = @((Get-MpPreference).ExclusionPath)
         if ($excl -notcontains $binDir) {
@@ -142,27 +182,53 @@ if ($sshd) {
     if (-not $installed) {
         Step 'Thu cai bang goi Win32-OpenSSH tu GitHub...'
         $zip = Join-Path $env:TEMP 'OpenSSH-Win64.zip'
+        $urls = New-Object 'System.Collections.Generic.List[string]'
+
+        # 1) Thu GitHub API (co timeout, khong treo vo han)
         try {
             $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/Win32-OpenSSH/releases/latest' `
-                    -Headers @{ 'User-Agent' = 'bore-ssh-setup' } -UseBasicParsing
+                    -Headers @{ 'User-Agent' = 'bore-ssh-setup' } -UseBasicParsing -TimeoutSec 15
             $asset = $rel.assets | Where-Object { $_.name -match '^OpenSSH-Win64.*\.zip$' } |
                      Select-Object -First 1
-            if (-not $asset) { throw 'Khong tim thay goi OpenSSH-Win64.zip' }
-            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing
-
-            $dst = Join-Path $env:ProgramFiles 'OpenSSH'
-            if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
-            Expand-Archive -LiteralPath $zip -DestinationPath $dst -Force
-            $inner = Get-ChildItem -LiteralPath $dst -Directory | Select-Object -First 1
-            if ($inner) {
-                Get-ChildItem -LiteralPath $inner.FullName | Move-Item -Destination $dst -Force
-                Remove-Item -LiteralPath $inner.FullName -Recurse -Force
-            }
-            & (Join-Path $dst 'install-sshd.ps1') | Out-Null
-            $sshd = Get-SshdPath
-            if ($sshd) { $installed = $true; Ok 'Da cai Win32-OpenSSH' }
+            if ($asset) { $urls.Add($asset.browser_download_url) }
         } catch {
-            Fail "Cai OpenSSH that bai: $($_.Exception.Message)"
+            Warn "GitHub API loi: $($_.Exception.Message)"
+        }
+
+        # 2) Du phong: URL co dinh, khong phu thuoc API
+        $urls.Add('https://github.com/PowerShell/Win32-OpenSSH/releases/download/v9.5.0.0p1-Beta/OpenSSH-Win64.zip')
+
+        $got = $false
+        foreach ($u in $urls) {
+            try {
+                Step "Tai: $u"
+                Invoke-WebRequest -Uri $u -OutFile $zip -UseBasicParsing -TimeoutSec 300
+                $got = $true
+                break
+            } catch {
+                Warn "Tai that bai: $($_.Exception.Message)"
+            }
+        }
+
+        if (-not $got) {
+            Fail 'Khong tai duoc OpenSSH-Win64.zip'
+        } else {
+            try {
+                $dst = Join-Path $env:ProgramFiles 'OpenSSH'
+                if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
+                Expand-Archive -LiteralPath $zip -DestinationPath $dst -Force
+                $inner = Get-ChildItem -LiteralPath $dst -Directory | Select-Object -First 1
+                if ($inner) {
+                    Get-ChildItem -LiteralPath $inner.FullName | Move-Item -Destination $dst -Force
+                    Remove-Item -LiteralPath $inner.FullName -Recurse -Force
+                }
+                & (Join-Path $dst 'install-sshd.ps1') | Out-Null
+                $sshd = Get-SshdPath
+                if ($sshd) { $installed = $true; Ok 'Da cai Win32-OpenSSH' }
+                else { Fail 'Da giai nen nhung khong tim thay sshd.exe' }
+            } catch {
+                Fail "Cai OpenSSH that bai: $($_.Exception.Message)"
+            }
         }
     }
 
@@ -318,6 +384,15 @@ if ($NoPassword) {
                 Ok "Da bat lai tai khoan $User"
             }
             $script:NewPassword = $Password
+            # Luu lai de lan sau in san lenh SSH day du (file da gitignore)
+            try {
+                $credFile = Join-Path (Split-Path -Parent $PSScriptRoot) '.ssh-password'
+                $body = "SSH_USER=$User`r`nSSH_PASSWORD=$Password`r`n"
+                [IO.File]::WriteAllText($credFile, $body, (New-Object Text.UTF8Encoding($false)))
+                Ok 'Da luu .ssh-password (user + mat khau)'
+            } catch {
+                Warn "Khong luu duoc .ssh-password: $($_.Exception.Message)"
+            }
         }
     }
 }

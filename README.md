@@ -46,7 +46,7 @@ The `setup` command runs, in order:
 3. Enables the `sshd` service (Automatic + Start)
 4. Opens the firewall for the SSH port
 5. Writes `sshd_config`: `Port 2222`, `PasswordAuthentication yes` (with a backup)
-6. Sets the account password (generated if `--password` is not given)
+6. Asks whether to set a new password (**default: keep the current Windows password**) — or pass `--password P` / `--skip-password` to decide up front
 7. **Self-checks**: `sshd -T`, service RUNNING, port LISTENING
 8. Opens the bore tunnel, reads the public port, prints the SSH command
 
@@ -54,7 +54,6 @@ Final output looks like:
 
 ```
 [ok] SSH SERVER DA SAN SANG
-
   User     : Administrator
   Password : Aa1!x8Kp2mQz7
 
@@ -62,14 +61,33 @@ Final output looks like:
      TUNNEL DANG MO
   ============================================================
      Cong khai : bore.pub:51234
-     SSH vao   : ssh -p 51234 Administrator@bore.pub
-  ============================================================
 
-  [i] Tunnel dang chay. Nhan phim bat ky de DUNG tunnel va thoat.
+     >>> DAN NGUYEN DONG NAY VAO MAY KHAC:
+
+         ssh -p 51234 Administrator@bore.pub
+
+     Mat khau  : Aa1!x8Kp2mQz7
+
+     User      : Administrator  (tai khoan Windows tren may nay)
+  ------------------------------------------------------------
+     Thu ngay tai may nay truoc:
+         ssh -p 2222 Administrator@localhost
+  ------------------------------------------------------------
+     Hoac dan vao %USERPROFILE%\.ssh\config de go ngan:
+        Host vm
+            HostName bore.pub
+            Port 51234
+            User Administrator
+     Roi chi can go:  ssh vm
+  ============================================================
 ```
 
-> **Note:** the password is generated and shown only once — save it.
-> Keep this window open; closing it stops the tunnel.
+Copy the `ssh -p ... ` line, paste it on the other machine, done — user, port and password are already the real ones. The credentials are also stored in `.ssh-password` (gitignored) so later runs print the same complete command.
+
+> **Keep this window open** — closing it stops the tunnel.
+> The password is generated once and shown here; save it.
+
+> **Windows Defender:** `bore.exe` is frequently flagged as `Trojan:Win32/Kepavll` (false positive on Rust tunnel binaries) and deleted, which shows up as `The system cannot execute the specified program`. `setup` adds `bin\` to the Defender exclusion list **before** downloading bore, so this is handled automatically. If setup still fails, the last 20 lines of `logs\sshd-setup.log` are printed for you.
 
 *(Console messages are in Vietnamese; this README is the English reference.)*
 
@@ -89,7 +107,9 @@ The command has three parts:
 | `bore.pub` | the bore relay, **not** your VM | fixed |
 | `-p 51234` | public port assigned by bore | printed when the tunnel opens |
 
-bore has **no UUID or token**: the port number is the only identifier of the tunnel. The password is the password of that Windows account.
+bore has **no UUID or token**: the port number is the only identifier of the tunnel. The password is the password of that Windows account — it is printed in the tunnel window and stored in `.ssh-password`.
+
+The tunnel window already builds that exact command with the real username (quoting it if it contains spaces) and the password, so normally you just copy one line.
 
 > **Don't know the username?** `Administrator` is just the Windows account **on the VM** (bore does not create it). Run `whoami` on the VM to see the exact name. Windows Server defaults to `Administrator`; if you created your own account during install, use that name — or run `bore-ssh.bat setup --user YourName` so the script prints the right command.
 
@@ -175,6 +195,8 @@ copy tunnel.conf.example tunnel.conf
 | `BORE_BIN` | Path to the `bore` binary | `bin/bore(.exe)` |
 | `BORE_ARGS` | Extra arguments for `bore local` | empty |
 
+`setup` also writes `.ssh-password` (`SSH_USER` + `SSH_PASSWORD`, gitignored) so the tunnel window can print a complete copy-paste command every time. If you change the account password later, update that file or re-run `setup`.
+
 Expose the SSH of **another machine on the LAN** through the machine running the script:
 
 ```ini
@@ -195,10 +217,10 @@ BORE_ARGS=--secret my-secret
 | Option | Effect |
 |---|---|
 | `--port N` | Internal SSH port (default 2222) |
-| `--password P` | Set a password instead of generating one |
+| `--password P` | Set this password for the account (skips the prompt) |
 | `--user NAME` | User used for SSH (default: current user) |
 | `--ssh-only` | Only set up SSH, don't open the tunnel |
-| `--skip-password` | Leave the current password unchanged |
+| `--skip-password` | Leave the current password unchanged (also the default when the prompt is skipped) |
 | `--dry-run` | Print the steps without changing anything |
 
 Short commands: `st` = setup, `s` = server, `c` = client, `i` = install, `l` = logs.
@@ -241,7 +263,8 @@ On Colab/Docker (no systemd) the script starts `sshd` directly and uses port `22
 | Symptom | Fix |
 |---|---|
 | Pressing `1` makes the window disappear | It self-elevates via UAC into a new Administrator window. If the result isn't visible, run `bore-ssh.bat setup` from an Administrator terminal and read the output there |
-| Windows Defender flags `bore.exe` as a virus and deletes it | Common false positive for Rust tunnel binaries. `setup` (as Admin) adds `bin\` to Defender exclusions automatically; or run `Add-MpPreference -ExclusionPath "<repo>\bin"` in an Admin PowerShell, then `bore-ssh.bat install` |
+| Windows Defender deletes `bore.exe` (`Trojan:Win32/Kepavll`, `The system cannot execute the specified program`) | Common false positive for Rust tunnel binaries. `setup` adds `bin\` to Defender exclusions **before** downloading bore, and `install` offers to do it when the binary is blocked. Manually: `Add-MpPreference -ExclusionPath "<repo>\bin"` in an Admin PowerShell, then `bore-ssh.bat install` |
+| `setup` fails with no visible reason | The last 20 lines of `logs\sshd-setup.log` are printed automatically; the full log is in `logs\sshd-setup.log` |
 | `Khong mo duoc tunnel` and the log says port in use | The `REMOTE_PORT` is taken → pick another number or leave it empty |
 | `sshd` is not running | Windows: `Get-Service sshd` / `Restart-Service sshd`; Linux: check `/tmp/sshd-bore.log` |
 | Connection works but `Permission denied` | Check the user exists and is enabled, the password is correct, `PasswordAuthentication yes` |
@@ -304,9 +327,11 @@ To see real IPs you would need to self-host bore behind a reverse proxy with PRO
 ├── scripts/
 │   ├── setup-sshd-windows.ps1    #   install/configure OpenSSH Server (Windows)
 │   ├── setup-ssh-linux.sh        #   install/configure sshd (Linux/Colab/Docker)
+│   ├── defender-exclude.ps1      #   add bin/ to Windows Defender exclusions
 │   ├── check-log.ps1             #   log analysis + attack detection (Windows)
 │   └── check-log.sh              #   log analysis + attack detection (Linux)
 ├── tunnel.conf.example           # config template (copy to tunnel.conf)
+├── logs/                         # setup logs (gitignored)
 └── bin/                          # bore binary, downloaded automatically (gitignored)
 ```
 

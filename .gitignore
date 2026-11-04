@@ -9,5 +9,8 @@ bin/
 .bore-ssh-last
 .ssh-password
 
+# Log setup
+logs/
+
 # Backup cau hinh sshd
 *.bak

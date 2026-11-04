@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================
-#  setup-ssh-bore.sh
+#  setup-ssh-linux.sh  (duoc goi tu: bore-ssh.sh setup)
 #
 #  Tu dong: cai SSH server -> cau hinh -> dat mat khau root
 #           -> bat sshd -> tu kiem tra -> mo bore tunnel
@@ -9,10 +9,10 @@
 #  Dung cho: Ubuntu/Debian, Alpine, Fedora/RHEL, Arch,
 #            Google Colab, Docker container, VPS.
 #
-#  Chay:  bash setup-ssh-bore.sh
-#         bash setup-ssh-bore.sh --port 2222 --password MyPass123
-#         bash setup-ssh-bore.sh --ssh-only
-#         bash setup-ssh-bore.sh --dry-run
+#  Chay:  bash bore-ssh.sh setup
+#         bash bore-ssh.sh setup --port 2222 --password MyPass123
+#         bash bore-ssh.sh setup --ssh-only
+#         bash bore-ssh.sh setup --dry-run
 # =============================================================
 set -uo pipefail
 
@@ -50,10 +50,10 @@ hr()   { printf '%s\n' "========================================================
 
 usage() {
   cat <<EOF
-setup-ssh-bore.sh - tu dong setup SSH server + bore tunnel
+bore-ssh.sh - tu dong setup SSH server + bore tunnel
 
 Cach dung:
-  bash setup-ssh-bore.sh [tuy chon]
+  bash bore-ssh.sh setup [tuy chon]
 
 Tuy chon:
   --port N          cong SSH noi bo (mac dinh: 2222 trong container/Colab, 22 ngoai)
@@ -67,8 +67,8 @@ Tuy chon:
   -h, --help        tro giup
 
 Vi du:
-  bash setup-ssh-bore.sh
-  bash setup-ssh-bore.sh --port 2222 --password 'MySecurePass123'
+  bash bore-ssh.sh setup
+  bash bore-ssh.sh setup --port 2222 --password 'MySecurePass123'
 EOF
 }
 
@@ -216,7 +216,7 @@ else
 
   $SUDO mkdir -p "$DROPIN_DIR"
   $SUDO tee "$DROPIN" >/dev/null <<EOF
-# Quan ly boi setup-ssh-bore.sh
+# Quan ly boi bore-ssh.sh
 Port $SSH_PORT
 PermitRootLogin yes
 PasswordAuthentication yes
@@ -299,6 +299,11 @@ else
   else
     die "User '$TUNNEL_USER' khong ton tai."
   fi
+
+  # Luu lai de lan sau in san lenh SSH day du (da gitignore)
+  printf 'SSH_USER=%s\nSSH_PASSWORD=%s\n' "$TUNNEL_USER" "$SSH_PASSWORD" > "$ROOT/.ssh-password" 2>/dev/null \
+    && ok "Da luu .ssh-password (user + mat khau)" \
+    || warn "Khong luu duoc .ssh-password"
 fi
 
 # -------------------------------------------------------------
