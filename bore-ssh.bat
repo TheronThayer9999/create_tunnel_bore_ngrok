@@ -190,11 +190,10 @@ rem ============================================================
 rem  SETUP: cai OpenSSH Server + mo tunnel
 rem ============================================================
 :setup
+rem --dry-run: chi in buoc, khong doi he thong -> khong can Admin
+if defined DRYRUN goto :setup_conf
 call :require_admin
 if errorlevel 1 goto :setup_noadmin
-
-rem --dry-run: chi in buoc, khong doi he thong
-if defined DRYRUN goto :setup_conf
 
 rem Da co quyen Admin: loai tru Defender TRUOC khi tai bore.
 rem Neu khong, Defender se xoa bore.exe ngay khi file vua duoc giai nen.
@@ -218,12 +217,22 @@ if defined OPT_SKIPPW goto :setup_pw_done
 if defined DRYRUN goto :setup_pw_done
 
 echo.
-echo   Mat khau Windows cua "%FUSER%" se dung de dang nhap SSH.
+echo   Mat khau cua "%FUSER%" dung de dang nhap SSH.
+call :user_has_password
+if /i "%HASPW%"=="0" echo   [!] Tai khoan "%FUSER%" chua co mat khau - sshd se tu choi moi lan dang nhap.
+if /i "%HASPW%"=="0" echo       (Windows cung chan dang nhap qua mang bang mat khau rong)
+if /i "%HASPW%"=="0" echo   [i] Nen dat mat khau, hoac dung user rieng: --user ssh --password MatKhau123
 set "YN="
+if /i "%HASPW%"=="0" (
+  set /p "YN=  Dat mat khau MOI (tu sinh)? [Y/n]: "
+  if /i "!YN!"=="n" goto :setup_pw_skip
+  goto :setup_pw_done
+)
 set /p "YN=  Dat mat khau MOI (tu sinh)? [y/N]: "
 if /i "%YN%"=="y" goto :setup_pw_done
+:setup_pw_skip
 set "OPT_SKIPPW=1"
-echo   [i] Giu nguyen mat khau hien tai cua "%FUSER%".
+echo   [i] Giu nguyen mat khau hien tai cua "%FUSER%" (khong doi).
 
 :setup_pw_done
 echo.
@@ -701,6 +710,16 @@ if not defined SSH_PORT set "SSH_PORT=22"
 if not defined BORE_BIN set "BORE_BIN=%BIN%"
 set "SERVER_HOST=%BORE_SERVER%"
 for /f "tokens=1 delims=:" %%A in ("%BORE_SERVER%") do set "SERVER_HOST=%%A"
+exit /b 0
+
+rem User da co mat khau chua? HASPW=1 (co) / 0 (chua co hoac chua ton tai)
+:user_has_password
+set "HASPW=0"
+set "TUNNEL_CHECK_USER=%~1"
+if not defined TUNNEL_CHECK_USER set "TUNNEL_CHECK_USER=%FUSER%"
+if not defined TUNNEL_CHECK_USER exit /b 0
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "$u=Get-LocalUser -Name $env:TUNNEL_CHECK_USER -ErrorAction SilentlyContinue; [int][bool]$u.PasswordLastSet"`) do set "HASPW=%%A"
+set "TUNNEL_CHECK_USER="
 exit /b 0
 
 rem Bao dam co bore.exe (config -> bin\bore.exe -> PATH)

@@ -122,15 +122,32 @@ Write-Host '  CAI DAT SSH SERVER (Windows)' -ForegroundColor White
 Write-Host '============================================================' -ForegroundColor White
 Write-Log '=== Cai dat SSH server (Windows) ==='
 
+if ($DryRun) {
+    Warn 'DRY-RUN: khong thay doi he thong.'
+    if ($WindowsUpdate) {
+        Step 'OpenSSH: qua Windows Update (Add-WindowsCapability, 5-15 phut)'
+    } else {
+        Step 'OpenSSH: tai Win32-OpenSSH tu GitHub (khoang 1 phut)'
+    }
+    Step "Cong SSH noi bo: $Port"
+    $acctDry = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
+    if ($acctDry) {
+        Step "User: $User (da ton tai)"
+        if (-not $acctDry.PasswordLastSet) {
+            Warn "User '$User' CHUA co mat khau -> khong the dang nhap SSH bang mat khau."
+        }
+    } else {
+        Step "User: $User (chua ton tai -> se tao moi, them nhom Administrators)"
+    }
+    if ($NoPassword) { Warn 'Se KHONG dat mat khau (--skip-password).' }
+    elseif ($Password) { Step 'Se dat mat khau theo --password.' }
+    else { Step 'Se tu sinh mat khau, luu vao .ssh-password va in ra lenh SSH.' }
+    exit 0
+}
+
 if (-not (Test-Admin)) {
     Fail 'Can quyen Administrator. Chay: bore-ssh.bat setup'
     exit 2
-}
-
-if ($DryRun) {
-    Warn 'DRY-RUN: khong thay doi he thong.'
-    Step "se cai OpenSSH Server, cong $Port, user $User"
-    exit 0
 }
 
 # -------------------------------------------------------------
@@ -376,10 +393,27 @@ try {
 Write-Host ''
 if ($NoPassword) {
     Warn 'Bo qua dat mat khau (--skip-password)'
+    $acctNow = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
+    if ($acctNow -and -not $acctNow.PasswordLastSet) {
+        # Tai khoan rong mat khau: sshd tu choi (PermitEmptyPasswords no),
+        # va Windows con chan dang nhap qua mang bang mat khau rong.
+        Write-Host ''
+        Warn "TAI KHOAN '$User' KHONG CO MAT KHAU -> dang nhap SSH se FAIL."
+        Warn "Cach sua nhanh: bore-ssh.bat setup --user ssh --password MatKhau123"
+        Warn "(lenh tren tao user rieng ten 'ssh', KHONG dung mat khau dang nhap Windows cua ban)"
+        Write-Host ''
+    }
 } else {
+    # Sinh mat khau truoc, de neu user chua ton tai thi tao luon voi mat khau nay.
+    if (-not $Password) {
+        $chars = (48..57) + (65..90) + (97..122)
+        $Password = 'Aa1!' + (-join ($chars | Get-Random -Count 12 | ForEach-Object { [char]$_ }))
+        Warn "Tu sinh mat khau cho ${User}: $Password"
+    }
+
     $acct = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
-    if (-not $acct -and $Password) {
-        # Chua co user + da co mat khau -> tu tao (tien cho may moi)
+    if (-not $acct) {
+        # Chua co user -> tu tao (tien cho may moi / may chua co mat khau)
         try {
             $sec = ConvertTo-SecureString $Password -AsPlainText -Force
             New-LocalUser -Name $User -Password $sec -FullName $User `
@@ -395,10 +429,6 @@ if ($NoPassword) {
     if (-not $acct) {
         Fail "User '$User' khong ton tai. Tao truoc: net user $User <matkhau> /add  (hoac them --password)"
     } else {
-        if (-not $Password) {
-            $chars = (48..57) + (65..90) + (97..122)
-            $Password = 'Aa1!' + (-join ($chars | Get-Random -Count 12 | ForEach-Object { [char]$_ }))
-        }
         # net user cung ghi loi ra stderr -> goi theo cach khong nem exception
         $out = ''
         $rc = 0

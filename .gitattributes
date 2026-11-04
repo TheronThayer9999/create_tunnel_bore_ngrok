@@ -1,0 +1,8 @@
+# Batch files MUST keep CRLF: cmd.exe fails to resolve `goto :label`
+# in an LF-only .bat ("The system cannot find the batch label specified").
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Shell scripts must stay LF (they run in bash / Docker / Colab).
+*.sh   text eol=lf
