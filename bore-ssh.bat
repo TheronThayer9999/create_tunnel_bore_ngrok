@@ -303,35 +303,53 @@ rem ============================================================
 :client
 set "LAST_HOST="
 set "LAST_PORT="
+set "LAST_USER="
 if exist "%STATE%" call :load_file "%STATE%"
 
 set "DEF_HOST=%LAST_HOST%"
 if not defined DEF_HOST set "DEF_HOST=%SERVER_HOST%"
 set "DEF_PORT=%LAST_PORT%"
 set "DEF_USER=%SSH_USER%"
+if not defined DEF_USER set "DEF_USER=%LAST_USER%"
+
+rem Neu da biet du host/port/user thi vao thang, khong hoi lai
+set "CHOST=%LAST_HOST%"
+set "CPORT=%LAST_PORT%"
+set "CUSER=%DEF_USER%"
+if defined CHOST if defined CPORT if defined CUSER goto :client_run
 
 echo.
 echo   --- SSH vao tunnel ---
 echo   Tunnel phai duoc mo truoc do bang che do Server tren may kia.
+echo   User = tai khoan Windows tren may ao. Kiem tra bang: whoami
 echo.
-set "CHOST="
-set /p "CHOST=  Host [%DEF_HOST%]: "
+
+set "IN="
+set /p "IN=  Host [%DEF_HOST%]: "
+if defined IN set "CHOST=%IN%"
 if not defined CHOST set "CHOST=%DEF_HOST%"
 
-set "CPORT="
-if defined DEF_PORT set /p "CPORT=  Port [%DEF_PORT%]: "
-if not defined DEF_PORT set /p "CPORT=  Port: "
+set "IN="
+if defined DEF_PORT set /p "IN=  Port [%DEF_PORT%]: "
+if not defined DEF_PORT set /p "IN=  Port: "
+if defined IN set "CPORT=%IN%"
 if not defined CPORT set "CPORT=%DEF_PORT%"
 if not defined CPORT goto :client_noport
 
-set "CUSER="
-set /p "CUSER=  User [%DEF_USER%]: "
+set "IN="
+set /p "IN=  User [%DEF_USER%]: "
+if defined IN set "CUSER=%IN%"
 if not defined CUSER set "CUSER=%DEF_USER%"
 
+:client_run
 set "SSHCMD=ssh -p %CPORT% -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30"
 if not "%SSH_KEY%"=="" set SSHCMD=!SSHCMD! -i "!SSH_KEY!"
 if not "%CUSER%"=="" set SSHCMD=!SSHCMD! !CUSER!@!CHOST!
 if "%CUSER%"=="" set SSHCMD=!SSHCMD! !CHOST!
+
+>"%STATE%" echo LAST_HOST=%CHOST%
+>>"%STATE%" echo LAST_PORT=%CPORT%
+>>"%STATE%" echo LAST_USER=%CUSER%
 
 echo.
 echo   [*] %SSHCMD%
@@ -594,7 +612,12 @@ echo   ============================================================
 echo      Cong khai : %SERVER_HOST%:%BORE_PORT%
 echo      SSH vao   : ssh -p %BORE_PORT% %SSHUSER%@%SERVER_HOST%
 echo   ------------------------------------------------------------
-echo      Hoac chay : bore-ssh.bat client
+echo      Go ngan hon - dan vao %%USERPROFILE%%\.ssh\config:
+echo         Host vm
+echo             HostName %SERVER_HOST%
+echo             Port %BORE_PORT%
+echo             User %SSHUSER%
+echo      Roi chi can go:  ssh vm
 echo   ============================================================
 exit /b 0
 

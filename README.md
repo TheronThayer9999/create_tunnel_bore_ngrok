@@ -1,35 +1,35 @@
-# SSH over bore — vào Windows Server VM sau NAT
+# SSH over bore — reach a Windows Server VM behind NAT
 
-Bộ script tự động dựng **SSH server + tunnel ra ngoài** cho một máy ảo không có IP public (Windows Server, Linux, Colab, Docker…), rồi in sẵn lệnh SSH để bạn kết nối từ bất kỳ đâu.
+A small toolkit that automatically sets up **an SSH server + an outbound tunnel** on a VM without a public IP (Windows Server, Linux, Colab, Docker…), then prints the exact SSH command to connect from anywhere.
 
 ```
-   Máy ảo Windows Server          bore relay              Máy của bạn
-   (sau NAT, không IP public)     bore.pub                (bất kỳ đâu)
-   ┌──────────────────────┐      ┌──────────┐      ┌──────────────────────┐
-   │ sshd :2222           │─────▶│ :51234   │◀─────│ ssh -p 51234         │
-   │ bore local 2222 ...  │ thoát│  (public)│      │ user@bore.pub        │
-   └──────────────────────┘  ra  └──────────┘      └──────────────────────┘
+   Windows Server VM                bore relay              Your machine
+   (behind NAT, no public IP)       bore.pub                (anywhere)
+   ┌──────────────────────┐        ┌──────────┐        ┌──────────────────────┐
+   │ sshd :2222           │───────▶│ :51234   │◀───────│ ssh -p 51234         │
+   │ bore local 2222 ...  │ out    │ (public) │        │ user@bore.pub        │
+   └──────────────────────┘        └──────────┘        └──────────────────────┘
 ```
 
-Tunnel được **phát ra từ chính máy ảo** (outbound), nên không cần mở port trên router, không cần IP tĩnh, không cần VPN. Chỉ mở khi cần — đóng cửa sổ là tunnel tắt, không cài service chạy nền.
+The tunnel is **initiated by the VM itself** (outbound), so you don't need port forwarding on the router, a static IP, or a VPN. It runs only while you need it — close the window and the tunnel is gone; no background service is installed.
 
-Mỗi nền tảng chỉ có **một file cần chạy**: `bore-ssh.bat` (Windows) hoặc `bore-ssh.sh` (Linux/macOS).
+Each platform has **exactly one entry file**: `bore-ssh.bat` (Windows) or `bore-ssh.sh` (Linux/macOS).
 
 ---
 
-## 1. Yêu cầu
+## 1. Requirements
 
-| Thành phần | Ghi chú |
+| Component | Notes |
 |---|---|
-| Máy Windows Server VM | Windows Server 2019+ (khuyến nghị) hoặc 2016 (tự fallback Win32-OpenSSH); có internet ra ngoài, quyền Administrator |
-| PowerShell 5.1 | Có sẵn trên Windows |
-| `curl.exe`, `tar.exe` | Có sẵn trên Windows 10/Server 2019+ (dùng để tải bore) |
-| Máy client | Có `ssh` (Windows 10+, Linux, macOS) |
-| bore | Script tự tải về `bin/` |
+| Windows Server VM | Windows Server 2019+ (recommended) or 2016 (falls back to Win32-OpenSSH); outbound internet, Administrator rights |
+| PowerShell 5.1 | Ships with Windows |
+| `curl.exe`, `tar.exe` | Ships with Windows 10 / Server 2019+ (used to download bore) |
+| Client machine | Needs `ssh` (Windows 10+, Linux, macOS) |
+| bore | Downloaded automatically into `bin/` |
 
 ---
 
-## 2. Bắt đầu nhanh trên VM Windows Server
+## 2. Quick start on the Windows Server VM
 
 ```bat
 git clone <repo-url> D:\script_tunnel_ssh
@@ -37,20 +37,20 @@ cd D:\script_tunnel_ssh
 bore-ssh.bat setup
 ```
 
-Hoặc **double-click `bore-ssh.bat`** rồi chọn `[1] Setup SSH server + mo tunnel` — script tự xin quyền Administrator qua UAC.
+Or simply **double-click `bore-ssh.bat`** and pick `[1] Setup SSH server + mo tunnel` — the script asks for Administrator rights via UAC.
 
-Lệnh `setup` chạy tuần tự:
+The `setup` command runs, in order:
 
-1. Tải `bore.exe` vào `bin\` (nếu chưa có)
-2. Cài **OpenSSH Server** (Windows Capability, fallback Win32-OpenSSH từ GitHub)
-3. Bật service `sshd` (Automatic + Start)
-4. Mở firewall cho cổng SSH
-5. Sửa `sshd_config`: `Port 2222`, `PasswordAuthentication yes` (có backup)
-6. Đặt mật khẩu cho user (tự sinh nếu không truyền `--password`)
-7. **Tự kiểm tra**: `sshd -T`, service RUNNING, cổng đang LISTEN
-8. Mở bore tunnel, đọc cổng public, in ra lệnh SSH
+1. Downloads `bore.exe` into `bin\` (if missing)
+2. Installs **OpenSSH Server** (Windows Capability, falls back to Win32-OpenSSH from GitHub)
+3. Enables the `sshd` service (Automatic + Start)
+4. Opens the firewall for the SSH port
+5. Writes `sshd_config`: `Port 2222`, `PasswordAuthentication yes` (with a backup)
+6. Sets the account password (generated if `--password` is not given)
+7. **Self-checks**: `sshd -T`, service RUNNING, port LISTENING
+8. Opens the bore tunnel, reads the public port, prints the SSH command
 
-Kết quả in ra (phần cuối):
+Final output looks like:
 
 ```
 [ok] SSH SERVER DA SAN SANG
@@ -68,38 +68,42 @@ Kết quả in ra (phần cuối):
   [i] Tunnel dang chay. Nhan phim bat ky de DUNG tunnel va thoat.
 ```
 
-> **Lưu ý:** mật khẩu do script sinh và chỉ hiện một lần. Lưu lại ngay.
-> Giữ cửa sổ này mở — đóng cửa sổ là tunnel tắt.
+> **Note:** the password is generated and shown only once — save it.
+> Keep this window open; closing it stops the tunnel.
+
+*(Console messages are in Vietnamese; this README is the English reference.)*
 
 ---
 
-## 3. SSH vào máy ảo từ máy khác
+## 3. Connecting from another machine
 
 ```bash
 ssh -p 51234 Administrator@bore.pub
 ```
 
-Lệnh trên gồm 3 phần:
+The command has three parts:
 
-| Phần | Nghĩa | Lấy ở đâu |
+| Part | Meaning | Where it comes from |
 |---|---|---|
-| `Administrator` | user Windows **trên máy ảo** | tài khoản bạn đăng nhập Windows (hoặc `--user NAME`) |
-| `bore.pub` | relay của bore, **không phải** máy ảo | cố định |
-| `-p 51234` | cổng public bore cấp | in ra khi mở tunnel |
+| `Administrator` | Windows user **on the VM** | the account you log into Windows with (or `--user NAME`) |
+| `bore.pub` | the bore relay, **not** your VM | fixed |
+| `-p 51234` | public port assigned by bore | printed when the tunnel opens |
 
-bore **không có UUID/token**: định danh duy nhất của tunnel là số port. Mật khẩu là mật khẩu của tài khoản Windows đó.
+bore has **no UUID or token**: the port number is the only identifier of the tunnel. The password is the password of that Windows account.
 
-### Gõ tắt để không phải nhớ port (khuyến nghị)
+> **Don't know the username?** `Administrator` is just the Windows account **on the VM** (bore does not create it). Run `whoami` on the VM to see the exact name. Windows Server defaults to `Administrator`; if you created your own account during install, use that name — or run `bore-ssh.bat setup --user YourName` so the script prints the right command.
 
-**Cách 1 — ghim port** trong `tunnel.conf`:
+### Shortcuts so you don't memorize the port (recommended)
+
+**Option 1 — pin the port** in `tunnel.conf`:
 
 ```ini
 REMOTE_PORT=51234
 ```
 
-Từ đó mỗi lần chạy vẫn là `ssh -p 51234 user@bore.pub`, không đổi nữa.
+From then on it is always `ssh -p 51234 user@bore.pub`.
 
-**Cách 2 — alias trong SSH config** (máy client), sửa `~/.ssh/config`:
+**Option 2 — SSH config alias** (on the client), edit `~/.ssh/config`:
 
 ```
 Host vm
@@ -109,15 +113,15 @@ Host vm
     ServerAliveInterval 30
 ```
 
-Sau đó chỉ cần gõ:
+Then just:
 
 ```bash
 ssh vm
 ```
 
-Port đổi thì sửa đúng 1 dòng `Port`. Trên Windows file này ở `%USERPROFILE%\.ssh\config`.
+If the port changes, edit that single `Port` line. On Windows the file is `%USERPROFILE%\.ssh\config`.
 
-**Cách 3 — dùng script client** (đọc lại port lần chạy trước):
+**Option 3 — the client helper** (asks host/port/user the first time, then connects directly):
 
 ```bat
 bore-ssh.bat c        :: Windows
@@ -126,15 +130,17 @@ bore-ssh.bat c        :: Windows
 ./bore-ssh.sh c       # Linux / macOS
 ```
 
-### Lưu ý về thời gian dùng
+Details are cached in `.bore-ssh-last`, so from the second run on it is a single action.
 
-Script **không** cài service/scheduled task: tunnel chỉ sống trong cửa sổ đang chạy. Dùng vài tiếng rồi đóng là hợp lý, không cần dọn dẹp gì. Nếu muốn chạy nền lâu dài mới cần Task Scheduler / `nohup` / `tmux`.
+### A note on usage time
+
+The script **does not** install a service or scheduled task: the tunnel lives only in the running window. Using it for a few hours and closing is perfectly fine, nothing to clean up. You only need Task Scheduler / `nohup` / `tmux` if you want long-running background tunnels.
 
 ---
 
-## 4. Chạy lại khi SSH đã cài sẵn
+## 4. Reopening the tunnel later
 
-Không cần setup lại, chỉ mở tunnel:
+No need to re-run setup — just open the tunnel:
 
 ```bat
 bore-ssh.bat s        :: Windows (s = server)
@@ -143,7 +149,7 @@ bore-ssh.bat s        :: Windows (s = server)
 ./bore-ssh.sh s       # Linux / macOS
 ```
 
-Xem trước lệnh mà không chạy thật:
+Print the command without running it:
 
 ```bat
 bore-ssh.bat s --dry-run
@@ -151,31 +157,31 @@ bore-ssh.bat s --dry-run
 
 ---
 
-## 5. Cấu hình — `tunnel.conf`
+## 5. Configuration — `tunnel.conf`
 
-`bore-ssh.bat setup` tự tạo `tunnel.conf` từ file mẫu và tự ghi `SSH_PORT` + `SSH_USER`. Muốn sửa tay:
+`bore-ssh.bat setup` creates `tunnel.conf` from the example and fills in `SSH_PORT` + `SSH_USER`. To edit it manually:
 
 ```bat
 copy tunnel.conf.example tunnel.conf
 ```
 
-| Key | Ý nghĩa | Mặc định |
+| Key | Meaning | Default |
 |---|---|---|
-| `BORE_SERVER` | Relay server: `bore.pub` hoặc `host:7835` | `bore.pub` |
-| `SSH_PORT` | Cổng SSH nội bộ của máy chạy server | `2222` |
-| `SSH_USER` | User in ra trong lệnh SSH | trống |
-| `SSH_KEY` | Private key cho chế độ client | trống |
-| `REMOTE_PORT` | Xin bore cấp cổng public cố định | trống = ngẫu nhiên |
-| `BORE_BIN` | Đường dẫn `bore` binary | `bin/bore(.exe)` |
-| `BORE_ARGS` | Tham số thêm cho `bore local` | trống |
+| `BORE_SERVER` | Relay server: `bore.pub` or `host:7835` | `bore.pub` |
+| `SSH_PORT` | Internal SSH port on the server machine | `2222` |
+| `SSH_USER` | User printed in the SSH command | empty |
+| `SSH_KEY` | Private key for client mode | empty |
+| `REMOTE_PORT` | Request a fixed public port from bore | empty = random |
+| `BORE_BIN` | Path to the `bore` binary | `bin/bore(.exe)` |
+| `BORE_ARGS` | Extra arguments for `bore local` | empty |
 
-Ví dụ expose SSH của **một máy khác trong LAN** qua máy đang chạy script:
+Expose the SSH of **another machine on the LAN** through the machine running the script:
 
 ```ini
 BORE_ARGS=--local-host 192.168.1.50
 ```
 
-Ví dụ dùng relay riêng có secret:
+Use your own relay with a secret:
 
 ```ini
 BORE_SERVER=bore.example.com:7835
@@ -184,66 +190,66 @@ BORE_ARGS=--secret my-secret
 
 ---
 
-## 6. Tùy chọn dòng lệnh — `bore-ssh.bat setup`
+## 6. Command-line options — `bore-ssh.bat setup`
 
-| Tùy chọn | Tác dụng |
+| Option | Effect |
 |---|---|
-| `--port N` | Cổng SSH nội bộ (mặc định 2222) |
-| `--password P` | Đặt mật khẩu, không tự sinh |
-| `--user NAME` | User dùng để SSH (mặc định user đang chạy) |
-| `--ssh-only` | Chỉ setup SSH, không mở tunnel |
-| `--skip-password` | Không đổi mật khẩu hiện tại |
-| `--dry-run` | In các bước, không thay đổi hệ thống |
+| `--port N` | Internal SSH port (default 2222) |
+| `--password P` | Set a password instead of generating one |
+| `--user NAME` | User used for SSH (default: current user) |
+| `--ssh-only` | Only set up SSH, don't open the tunnel |
+| `--skip-password` | Leave the current password unchanged |
+| `--dry-run` | Print the steps without changing anything |
 
-Lệnh tắt: `st` = setup, `s` = server, `c` = client, `i` = install, `l` = logs.
+Short commands: `st` = setup, `s` = server, `c` = client, `i` = install, `l` = logs.
 
 ---
 
-## 7. Bản Linux / Colab / Docker
+## 7. Linux / Colab / Docker
 
 ```bash
 chmod +x bore-ssh.sh
 ./bore-ssh.sh setup
 ```
 
-Script tương đương bản Windows: cài `openssh-server` theo distro, ghi drop-in `/etc/ssh/sshd_config.d/99-bore-tunnel.conf`, đặt mật khẩu, bật sshd, tự kiểm tra rồi mở bore và in lệnh SSH.
+Same behaviour as the Windows version: installs `openssh-server` for the detected distro, writes the drop-in `/etc/ssh/sshd_config.d/99-bore-tunnel.conf`, sets the password, starts sshd, self-checks, then opens bore and prints the SSH command.
 
 ```bash
 ./bore-ssh.sh setup --port 2222 --password 'MySecurePass123'
-./bore-ssh.sh setup --ssh-only          # chỉ bật SSH
-./bore-ssh.sh setup --dry-run           # xem trước
+./bore-ssh.sh setup --ssh-only          # only enable SSH
+./bore-ssh.sh setup --dry-run           # preview
 ```
 
-Trên Colab/Docker (không có systemd) script tự chạy `sshd` trực tiếp và dùng cổng `2222`.
+On Colab/Docker (no systemd) the script starts `sshd` directly and uses port `2222`.
 
 ---
 
-## 8. Bảo mật — đọc trước khi dùng
+## 8. Security — read before use
 
-- `bore.pub` là **relay công khai**: ai biết `bore.pub:PORT` đều chạm được `sshd` của bạn. SSH vẫn yêu cầu đăng nhập, nhưng hãy:
-  - dùng mật khẩu mạnh (script sinh 16 ký tự), hoặc tốt hơn là **SSH key**;
-  - tránh để tunnel chạy 24/7 khi không dùng;
-  - cổng public ngẫu nhiên cũng là một lớp giảm dò quét.
-- Script **bật** `PermitRootLogin yes` và `PasswordAuthentication yes` (Linux) / mở firewall + password auth (Windows) để tiện dùng. Đây là đánh đổi bảo mật — với máy production, hãy dùng key và tắt password auth.
-- Cần riêng tư hơn: tự host `bore server --secret ...` rồi cấu hình `BORE_SERVER` + `BORE_ARGS=--secret ...`.
-- Mọi thay đổi cấu hình đều có backup: `sshd_config.bore-ssh.bak` (Windows: `C:\ProgramData\ssh\sshd_config.bore-ssh.bak`).
+- `bore.pub` is a **public relay**: anyone who knows `bore.pub:PORT` can reach your `sshd`. SSH still requires a login, but you should:
+  - use a strong password (the script generates a 16-character one), or better, **SSH keys**;
+  - avoid leaving the tunnel open 24/7 when unused;
+  - a random public port is an extra layer against scanning.
+- The script **enables** `PermitRootLogin yes` and `PasswordAuthentication yes` (Linux) / opens the firewall and enables password auth (Windows) for convenience. That is a security trade-off — for production, use keys and disable password auth.
+- Want more privacy: self-host `bore server --secret ...` and configure `BORE_SERVER` + `BORE_ARGS=--secret ...`.
+- Every config change is backed up: `sshd_config.bore-ssh.bak` (Windows: `C:\ProgramData\ssh\sshd_config.bore-ssh.bak`).
 
 ---
 
-## 9. Sự cố thường gặp
+## 9. Troubleshooting
 
-| Triệu chứng | Cách xử lý |
+| Symptom | Fix |
 |---|---|
-| Windows Defender báo `bore.exe` là virus và xóa file | False positive phổ biến với binary tunnel Rust. Thêm `bin\` vào danh sách loại trừ, hoặc tải bore từ GitHub rồi bỏ vào `bin\` |
-| `Khong mo duoc tunnel` + log báo port in use | `REMOTE_PORT` đã bị người khác dùng → đổi số khác hoặc để trống |
-| `sshd` không chạy | Windows: `Get-Service sshd` / `Restart-Service sshd`; Linux: xem `/tmp/sshd-bore.log` |
-| Kết nối tới nhưng `Permission denied` | Kiểm tra user tồn tại + đã bật, mật khẩu đúng, `PasswordAuthentication yes` |
-| Cổng public đổi liên tục | Đặt `REMOTE_PORT` cố định trong `tunnel.conf` |
-| Đóng cửa sổ là mất tunnel | Đúng thiết kế. Muốn chạy nền: Task Scheduler (Windows) hoặc `nohup`/`tmux` (Linux) |
-| Còn tiến trình bore sót | Windows: `taskkill /IM bore.exe /F` — Linux: `pkill -x bore` |
-| Cần debug kết nối | `ssh -vvv -p PORT user@bore.pub` |
+| Windows Defender flags `bore.exe` as a virus and deletes it | Common false positive for Rust tunnel binaries. Exclude `bin\` or download bore from GitHub and place it in `bin\` |
+| `Khong mo duoc tunnel` and the log says port in use | The `REMOTE_PORT` is taken → pick another number or leave it empty |
+| `sshd` is not running | Windows: `Get-Service sshd` / `Restart-Service sshd`; Linux: check `/tmp/sshd-bore.log` |
+| Connection works but `Permission denied` | Check the user exists and is enabled, the password is correct, `PasswordAuthentication yes` |
+| The public port keeps changing | Set a fixed `REMOTE_PORT` in `tunnel.conf` |
+| Closing the window kills the tunnel | By design. For background use: Task Scheduler (Windows) or `nohup`/`tmux` (Linux) |
+| Leftover bore process | Windows: `taskkill /IM bore.exe /F` — Linux: `pkill -x bore` |
+| Need to debug the connection | `ssh -vvv -p PORT user@bore.pub` |
 
-Kiểm tra nhanh phía server:
+Quick checks on the server side:
 
 ```bat
 sshd -T | findstr /I "port passwordauth"
@@ -252,67 +258,67 @@ netstat -ano | findstr :2222
 
 ---
 
-## 10. Log & phát hiện tấn công
+## 10. Logs & attack detection
 
-Vì port public nằm trên `bore.pub`, **sẽ có bot quét**. Script bật sẵn log và có sẵn lệnh kiểm tra.
+Because the public port lives on `bore.pub`, **bots will scan it**. The script enables logging and ships a check command.
 
-| Nơi lưu log | Nội dung |
+| Log location | Content |
 |---|---|
-| Windows: Event Log `OpenSSH/Operational` | mọi kết nối, đăng nhập sai, user không tồn tại |
-| `sshd_config` → `LogLevel VERBOSE` | ghi cả tên user bị thử |
-| `.bore-ssh.log` | log của bore (kết nối qua relay) |
+| Windows: Event Log `OpenSSH/Operational` | every connection, failed login, unknown user |
+| `sshd_config` → `LogLevel VERBOSE` | records the usernames being tried |
+| `.bore-ssh.log` | bore's own log (relay connections) |
 
-Xem nhanh:
+Quick check:
 
 ```bat
-bore-ssh.bat logs              :: 24 giờ gần nhất
-bore-ssh.bat logs --hours 6    :: 6 giờ gần nhất
+bore-ssh.bat logs              :: last 24 hours
+bore-ssh.bat logs --hours 6    :: last 6 hours
 ```
 ```bash
 ./bore-ssh.sh logs
 ```
 
-Kết quả gồm: số lần sai mật khẩu, user bị dò, top IP, **số kết nối/phút cao nhất** (dấu hiệu flood), và kết luận bình thường / bị dò / bị flood.
+The report shows: failed password count, usernames probed, top IPs, **peak connections per minute** (flood indicator), and a verdict: normal / being scanned / being flooded.
 
-> ⚠️ **Quan trọng:** qua bore, mọi kết nối đến sshd đều từ `127.0.0.1`, nên log **không cho biết IP thật** của kẻ tấn công. Bạn vẫn thấy được số lần, user bị thử và tốc độ — đủ để biết máy đang bị dò hay bị flood.
+> ⚠️ **Important:** through bore, every connection to sshd comes from `127.0.0.1`, so logs **cannot reveal the attacker's real IP**. You still get counts, probed usernames and rate — enough to know whether the machine is being scanned or flooded.
 
-Cách giảm rủi ro thật sự (không chỉ xem log):
+Real risk reduction (not just watching logs):
 
-- dùng **SSH key** thay mật khẩu;
-- ghim port khó đoán (`REMOTE_PORT`) và đổi khi cần;
-- giới hạn user được đăng nhập;
-- chỉ mở tunnel khi dùng, đóng khi xong;
-- **không** dùng fail2ban ở đây — nó sẽ thấy `127.0.0.1` và tự chặn tunnel của bạn.
+- use **SSH keys** instead of passwords;
+- keep the port hard to guess (`REMOTE_PORT`) and rotate it;
+- restrict which users may log in;
+- only open the tunnel while you need it;
+- **do not** use fail2ban here — it sees `127.0.0.1` and would ban your own tunnel.
 
-Muốn biết IP thật thì phải tự host bore sau một reverse proxy có PROXY protocol, hoặc dùng Cloudflare Tunnel.
+To see real IPs you would need to self-host bore behind a reverse proxy with PROXY protocol, or use Cloudflare Tunnel.
 
 ---
 
-## 11. Cấu trúc repo
+## 11. Repository layout
 
 ```
 .
-├── bore-ssh.bat                  # [Windows] entry duy nhất: menu + setup + tunnel + client
-├── bore-ssh.sh                   # [Linux]   entry duy nhất: menu + setup + tunnel + client
+├── bore-ssh.bat                  # [Windows] single entry: menu + setup + tunnel + client
+├── bore-ssh.sh                   # [Linux]   single entry: menu + setup + tunnel + client
 ├── scripts/
-│   ├── setup-sshd-windows.ps1    #   cài/cấu hình OpenSSH Server (Windows)
-│   ├── setup-ssh-linux.sh        #   cài/cấu hình sshd (Linux/Colab/Docker)
-│   ├── check-log.ps1             #   phân tích log + phát hiện tấn công (Windows)
-│   └── check-log.sh              #   phân tích log + phát hiện tấn công (Linux)
-├── tunnel.conf.example           # mẫu cấu hình (copy thành tunnel.conf)
-└── bin/                          # bore binary được tải tự động (gitignore)
+│   ├── setup-sshd-windows.ps1    #   install/configure OpenSSH Server (Windows)
+│   ├── setup-ssh-linux.sh        #   install/configure sshd (Linux/Colab/Docker)
+│   ├── check-log.ps1             #   log analysis + attack detection (Windows)
+│   └── check-log.sh              #   log analysis + attack detection (Linux)
+├── tunnel.conf.example           # config template (copy to tunnel.conf)
+└── bin/                          # bore binary, downloaded automatically (gitignored)
 ```
 
-Luồng chạy:
+Execution flow:
 
 ```
 bore-ssh.bat setup
-  └─ scripts/setup-sshd-windows.ps1   (cài + cấu hình + tự kiểm tra)
-  └─ mở tunnel, đọc port, in lệnh SSH
+  └─ scripts/setup-sshd-windows.ps1   (install + configure + self-check)
+  └─ open tunnel, read port, print SSH command
 ```
 
 ---
 
 ## License
 
-MIT — dùng thoải mái, tự chịu trách nhiệm về cấu hình bảo mật của máy mình.
+MIT — use it freely, but you are responsible for the security configuration of your own machine.

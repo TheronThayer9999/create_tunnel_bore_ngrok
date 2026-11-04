@@ -186,7 +186,7 @@ run_server() {
     die "Khong mo duoc tunnel. Xem log: $LOG"
   fi
 
-  printf 'HOST=%s\nPORT=%s\n' "$SERVER_HOST" "$port" > "$STATE"
+  { printf 'LAST_HOST=%s\nLAST_PORT=%s\n' "$SERVER_HOST" "$port"; [ -n "$SSH_USER" ] && printf 'LAST_USER=%s\n' "$SSH_USER"; } > "$STATE"
 
   local who="${SSH_USER:-YOUR_USER}"
   printf '\n'
@@ -195,6 +195,13 @@ run_server() {
   printf '  ============================================================\n'
   printf '     Cong khai : %s:%s\n' "$SERVER_HOST" "$port"
   printf '     SSH vao   : ssh -p %s %s@%s\n' "$port" "$who" "$SERVER_HOST"
+  printf '  ------------------------------------------------------------\n'
+  printf '     Go ngan hon - dan vao ~/.ssh/config:\n'
+  printf '        Host vm\n'
+  printf '            HostName %s\n' "$SERVER_HOST"
+  printf '            Port %s\n' "$port"
+  printf '            User %s\n' "$who"
+  printf '     Roi chi can go:  ssh vm\n'
   printf '  ============================================================\n\n'
   printf '  Nhan Enter de dung tunnel...'
   read -r _ || true
@@ -204,28 +211,39 @@ run_server() {
 
 # ---------- client ----------
 run_client() {
-  local lh="" lp="" luser="$SSH_USER"
+  local lh="" lp="" luser="$SSH_USER" saved_user=""
   if [ -f "$STATE" ]; then
-    lh="$(sed -n 's/^HOST=//p' "$STATE" | tail -n1)"
-    lp="$(sed -n 's/^PORT=//p' "$STATE" | tail -n1)"
+    lh="$(sed -n 's/^LAST_HOST=//p' "$STATE" | tail -n1)"
+    lp="$(sed -n 's/^LAST_PORT=//p' "$STATE" | tail -n1)"
+    saved_user="$(sed -n 's/^LAST_USER=//p' "$STATE" | tail -n1)"
   fi
   [ -n "$lh" ] || lh="$SERVER_HOST"
-
-  printf '\n  --- SSH vao tunnel ---\n'
-  printf '  Tunnel phai duoc mo truoc do tren may chu.\n\n'
+  [ -n "$luser" ] || luser="$saved_user"
 
   local in_host in_port in_user
-  read -r -p "  Host [$lh]: " in_host || true
-  in_host="${in_host:-$lh}"
-  if [ -n "$lp" ]; then
-    read -r -p "  Port [$lp]: " in_port || true
-    in_port="${in_port:-$lp}"
+
+  # Du thong tin thi vao thang, khong hoi lai
+  if [ -n "$lh" ] && [ -n "$lp" ] && [ -n "$luser" ]; then
+    in_host="$lh"; in_port="$lp"; in_user="$luser"
   else
-    read -r -p "  Port: " in_port || true
+    printf '\n  --- SSH vao tunnel ---\n'
+    printf '  Tunnel phai duoc mo truoc do tren may chu.\n'
+    printf '  User = tai khoan Windows tren may ao. Kiem tra: whoami\n\n'
+
+    read -r -p "  Host [$lh]: " in_host || true
+    in_host="${in_host:-$lh}"
+    if [ -n "$lp" ]; then
+      read -r -p "  Port [$lp]: " in_port || true
+      in_port="${in_port:-$lp}"
+    else
+      read -r -p "  Port: " in_port || true
+    fi
+    [ -n "$in_port" ] || die "Chua co port."
+    read -r -p "  User [${luser:-$USER}]: " in_user || true
+    in_user="${in_user:-${luser:-$USER}}"
   fi
-  [ -n "$in_port" ] || die "Chua co port."
-  read -r -p "  User [${luser:-$USER}]: " in_user || true
-  in_user="${in_user:-${luser:-$USER}}"
+
+  printf 'LAST_HOST=%s\nLAST_PORT=%s\nLAST_USER=%s\n' "$in_host" "$in_port" "$in_user" > "$STATE"
 
   local sshargs=(-p "$in_port" -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30)
   [ -n "$SSH_KEY" ] && sshargs+=(-i "$SSH_KEY")
